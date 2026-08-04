@@ -1,3 +1,6 @@
 venv/
 __pycache__/
 *.pyc
+notebooks/
+Dataset/
+output/Master_Hospital_Dataset.csv
