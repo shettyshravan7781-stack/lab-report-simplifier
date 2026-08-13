@@ -1,0 +1,38 @@
+{
+    "report_type": "LFT",
+    "patient": {},
+    "tests": [
+        {
+            "test": "soot (Ast)",
+            "value": "21",
+            "unit": "ust ust",
+            "reference": "1034 4 n",
+            "flag": "Normal",
+            "validation": "Within Expected Range"
+        },
+        {
+            "test": "SOOT /SGIPT RaT I0",
+            "value": "1.48",
+            "unit": "Rgit 10",
+            "reference": "44 122",
+            "flag": "Normal",
+            "validation": "Within Expected Range"
+        },
+        {
+            "test": "Gpruma Chulzimy( T-zrsfetase",
+            "value": "153",
+            "unit": "Uat",
+            "reference": "10 14",
+            "flag": "Normal",
+            "validation": "Within Expected Range"
+        },
+        {
+            "test": "med e iee ere t hend ter laply mrd of sre e dime",
+            "value": "",
+            "unit": "",
+            "reference": "",
+            "flag": "Normal",
+            "validation": "Within Expected Range"
+        }
+    ]
+}

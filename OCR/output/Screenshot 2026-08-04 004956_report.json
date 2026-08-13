@@ -1,0 +1,69 @@
+{
+    "report_type": "LFT",
+    "patient": {
+        "name": "Demo Paient Name",
+        "age": 52,
+        "gender": "Female",
+        "uhid": "UHID",
+        "date": null,
+        "lab_name": "H·O·D"
+    },
+    "tests": [
+        {
+            "test": "soot (Ast) ust",
+            "value": "1034",
+            "unit": "U/L",
+            "reference": "puymat it Color imvetrie",
+            "standard_test_name": "AST",
+            "description": "Aspartate Aminotransferase; rises when liver cells are damaged.",
+            "category": "Liver Enzymes",
+            "flag": "Normal",
+            "validation": "Within Expected Range"
+        },
+        {
+            "test": "21 ust",
+            "value": "4",
+            "unit": "",
+            "reference": "Uv wth Par",
+            "standard_test_name": "21 ust",
+            "description": "Standard laboratory measurement.",
+            "category": "General",
+            "flag": "Normal",
+            "validation": "Within Expected Range"
+        },
+        {
+            "test": "SOOT /SGIPT RaT I0 1.48 Rgit 10",
+            "value": "",
+            "unit": "",
+            "reference": "Calic uluat end",
+            "standard_test_name": "AST/ALT Ratio",
+            "description": "Ratio of AST to ALT; helps physicians evaluate overall liver function balance.",
+            "category": "Liver Ratios",
+            "flag": "Normal",
+            "validation": "Within Expected Range"
+        },
+        {
+            "test": "194",
+            "value": "44",
+            "unit": "",
+            "reference": "PuPP. ApmP b.Mer",
+            "standard_test_name": "194",
+            "description": "Standard laboratory measurement.",
+            "category": "General",
+            "flag": "Normal",
+            "validation": "Within Expected Range"
+        },
+        {
+            "test": "Gpruma Chulzimy( T-zrsfetase 153 Uat",
+            "value": "10",
+            "unit": "",
+            "reference": "C ghutzmyl p vltromlidie",
+            "standard_test_name": "Gpruma Chulzimy( T-zrsfetase 153 Uat",
+            "description": "Standard laboratory measurement.",
+            "category": "General",
+            "flag": "Normal",
+            "validation": "Within Expected Range"
+        }
+    ],
+    "total_tests": 5
+}
