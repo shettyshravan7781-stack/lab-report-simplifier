@@ -1,134 +1,83 @@
 {
-    "report_type": "Liver Function Test (LFT)",
     "patient": {
-        "name": "Demo Patient Name",
-        "age": 52,
-        "gender": "Female",
-        "uhid": "UHID",
-        "date": "20-Jan-25",
-        "lab_name": "H\u00b7O\u00b7D"
+        "name": "Mr Dummy Patient ID PN",
+        "age": null,
+        "gender": "Male",
+        "uhid": "PN2",
+        "date": "24/06/2023",
+        "lab_name": "Hello@flabs.in"
     },
-    "tests": [
+    "lab_tests": [
         {
-            "test": "Total Protein",
-            "raw_test_name": "Total Protein",
-            "value": "7.2",
-            "unit": "g/dL",
-            "reference": "6.5-7.8",
-            "flag": "Normal",
-            "validation": "Within Expected Range",
-            "method": "Biuret, No Serum Blank 7.2"
+            "test": "Total Leucocyte Count",
+            "value": "5000",
+            "unit": "",
+            "reference": "4000 - 10000",
+            "method": "/cumm"
         },
         {
-            "test": "Albumin",
-            "raw_test_name": "Albumin",
-            "value": "3.9",
-            "unit": "g/dL",
-            "reference": "3.9 - 5.0",
-            "flag": "Normal",
-            "validation": "Within Expected Range",
-            "method": "Bromocresol Green 3.9"
-        },
-        {
-            "test": "Globulin",
-            "raw_test_name": "Globulin",
-            "value": "3.3",
-            "unit": "gm/dL",
-            "reference": "2.0-3.5",
-            "flag": "Normal",
-            "validation": "Within Expected Range",
-            "method": "Calculated 3.3"
-        },
-        {
-            "test": "Albumin/Globulin Ratio",
-            "raw_test_name": "A/G Ratio",
-            "value": "1.18",
-            "unit": "Ratio",
-            "reference": "1.5-2.5",
-            "flag": "Low",
-            "validation": "Out of Range",
-            "method": "Calculated 1.18"
-        },
-        {
-            "test": "Total Bilirubin",
-            "raw_test_name": "Total Bilirubin",
-            "value": "0.73",
-            "unit": "mg/dL",
-            "reference": "0.2-1.3",
-            "flag": "Normal",
-            "validation": "Within Expected Range",
-            "method": "Azobilirubin/dyphylline 0.73"
-        },
-        {
-            "test": "Direct Bilirubin",
-            "raw_test_name": "Conjugated Bilirubin",
-            "value": "0.35",
-            "unit": "mg/dL",
-            "reference": "<0.3",
-            "flag": "High",
-            "validation": "Out of Range",
-            "method": "Calculated 0.35"
-        },
-        {
-            "test": "Indirect Bilirubin",
-            "raw_test_name": "Unconjugated Bilirubin",
-            "value": "0.38",
-            "unit": "mg/dL",
-            "reference": "<1.1",
-            "flag": "Normal",
-            "validation": "Within Expected Range",
-            "method": "Spectrophotometry 0.38"
-        },
-        {
-            "test": "SGOT (AST)",
-            "raw_test_name": "SGOT (AST)",
-            "value": "37",
-            "unit": "U/L",
-            "reference": "18-34",
-            "flag": "High",
-            "validation": "Out of Range",
-            "method": "Enzymatic Colorimetric 37"
-        },
-        {
-            "test": "SGPT (ALT)",
-            "raw_test_name": "SGPT (ALT)",
-            "value": "25",
-            "unit": "U/L",
-            "reference": "4-35",
-            "flag": "Normal",
-            "validation": "Within Expected Range",
-            "method": "UV with P5P 25"
-        },
-        {
-            "test": "SGOT/SGPT Ratio",
-            "raw_test_name": "SGOT/SGPT Ratio",
-            "value": "1.48",
-            "unit": "Ratio",
+            "test": "Basophils",
+            "value": "0.00",
+            "unit": "0-1",
             "reference": "",
-            "flag": "Normal",
-            "validation": "Within Expected Range",
-            "method": "Calculated 1.48"
+            "method": "%"
         },
         {
-            "test": "Alkaline Phosphatase (ALP)",
-            "raw_test_name": "Alkaline Phosphatase",
-            "value": "154",
-            "unit": "U/L",
-            "reference": "46 - 122",
-            "flag": "High",
-            "validation": "Out of Range",
-            "method": "PNPP, AMP buffer 154"
+            "test": "Absolute Neutrophils",
+            "value": "2500.00",
+            "unit": "",
+            "reference": "2000- 7000",
+            "method": "/cumm"
         },
         {
-            "test": "Gamma Glutamyl Transferase (GGT)",
-            "raw_test_name": "Gamma Glutamyl Transferase",
-            "value": "153",
-            "unit": "U/L",
-            "reference": "10 - 54",
-            "flag": "High",
-            "validation": "Out of Range",
-            "method": "G-glutamyl-p-nitroanilide 153"
+            "test": "Absolute Lymphocytes",
+            "value": "2000.00",
+            "unit": "",
+            "reference": "1000 - 3000",
+            "method": "/cumm"
+        },
+        {
+            "test": "Absolute Eosinophils",
+            "value": "50.00",
+            "unit": "20 - 500",
+            "reference": "",
+            "method": "/cumm"
+        },
+        {
+            "test": "Absolute Monocytes",
+            "value": "450.00",
+            "unit": "200 - 1000",
+            "reference": "",
+            "method": "/cumm"
+        },
+        {
+            "test": "MCV",
+            "value": "80.00",
+            "unit": "81 - 101",
+            "reference": "",
+            "method": "fL"
+        },
+        {
+            "test": "MCH",
+            "value": "30.00",
+            "unit": "27 - 32",
+            "reference": "",
+            "method": "pg"
+        },
+        {
+            "test": "MCHC",
+            "value": "37.50",
+            "unit": "31.5 - 34.5",
+            "reference": "",
+            "method": "g/dL"
+        },
+        {
+            "test": "Platelet Count",
+            "value": "300000",
+            "unit": "",
+            "reference": "150000 - 410000",
+            "method": "/cumm"
         }
     ],
-    "total_tests": 12
+    "total_tests_found": 10
 }

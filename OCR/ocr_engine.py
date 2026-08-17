@@ -1,6 +1,10 @@
 import os
 import math
 
+# Force disable oneDNN and PIR engine flags before paddle imports
+os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["FLAGS_enable_pir_api"] = "0"
+
 try:
     from paddleocr import PaddleOCR
 except ImportError:
@@ -38,7 +42,8 @@ class OCREngine:
             lang=LANGUAGE,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
-            use_textline_orientation=False
+            use_textline_orientation=False,
+            enable_mkldnn=False  # Kills oneDNN static graph runtime crash
         )
         self.patient_parser = PatientParser()
         self.table_detector = TableDetector()
@@ -50,9 +55,9 @@ class OCREngine:
         """
         extracted_data = []
 
-        # Execute OCR inference
+        # Execute OCR inference without outdated cls keyword argument
         try:
-            results = self.ocr.ocr(image, cls=False)
+            results = self.ocr.ocr(image)
         except Exception:
             results = self.ocr.predict(image)
 

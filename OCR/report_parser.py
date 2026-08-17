@@ -1,98 +1,87 @@
-"""
-Report section splitter that divides grouped text rows into 
-patient header rows, table body rows, and footer rows.
-"""
+import os
 
-class ReportParser:
-    """
-    Splits document rows into 3 logical structural regions:
-    1. patient: Header rows above the lab report table.
-    2. table: Main tabular data containing test parameters and values.
-    3. footer: Lab signatures, notes, and disclaimers below the table.
-    """
+# Disable oneDNN CPU graph flags before importing engine modules
+os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["FLAGS_enable_pir_api"] = "0"
+os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
-    # Multi-keyword triggers for robust boundary detection
-    TABLE_HEADER_KEYWORDS = [
-        ("TEST", "RESULT"),
-        ("TEST", "VALUE"),
-        ("PARAMETER", "VALUE"),
-        ("PARAMETER", "RESULT"),
-        ("INVESTIGATION", "RESULT"),
-        ("TEST NAME", "OBSERVED"),
-    ]
+import sys
+import glob
+import json
+import pymupdf  # PyMuPDF for automatic PDF reading
 
-    FOOTER_KEYWORDS = [
-        "CLINICAL NOTES",
-        "END OF REPORT",
-        "INTERPRETATION",
-        "DR.",
-        "PATHOLOGIST",
-        "LABORATORY DIRECTOR",
-        "THANK YOU FOR REFERRAL",
-        "PAGE 1 OF"
-    ]
+# Add project root to Python path
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
-    def __init__(self):
-        pass
+from OCR.ocr_engine import OCREngine
+from OCR.parser.parser_factory import ParserFactory
 
-    def split_sections(self, rows):
-        """
-        Splits grouped text rows into patient, table, and footer sections.
+def process_latest_report():
+    image_dir = os.path.join(PROJECT_ROOT, "OCR", "images")
+    output_json_path = os.path.join(PROJECT_ROOT, "OCR", "output", "report_output.json")
 
-        Args:
-            rows (list): List of text box lists representing horizontal lines.
+    # Locate image and PDF files in OCR/images
+    valid_extensions = ("*.pdf", "*.png", "*.jpg", "*.jpeg")
+    files = []
+    for ext in valid_extensions:
+        files.extend(glob.glob(os.path.join(image_dir, ext)))
 
-        Returns:
-            dict: {
-                "patient": list of patient header rows,
-                "table": list of core table rows,
-                "footer": list of footer/signature rows
-            }
-        """
-        patient_rows = []
-        table_rows = []
-        footer_rows = []
+    # Ignore internal temporary files
+    files = [f for f in files if not os.path.basename(f).startswith("_temp_")]
 
-        inside_table = False
+    if not files:
+        print(f"❌ Error: No image or PDF files found in {image_dir}")
+        return
 
-        for row in rows:
-            # Concatenate row items into a single uppercase string for keyword evaluation
-            row_text = " ".join(
-                item.get("text", "") if isinstance(item, dict) else str(item)
-                for item in row
-            ).upper()
+    latest_file = max(files, key=os.path.getmtime)
+    print(f"\n📄 Processing latest report file: {os.path.basename(latest_file)}")
 
-            # -----------------------------------------------------------------
-            # 1. Check for Table Start Boundary
-            # -----------------------------------------------------------------
-            if not inside_table:
-                # Check if any pair of header keywords exist in the row
-                for kw1, kw2 in self.TABLE_HEADER_KEYWORDS:
-                    if kw1 in row_text and kw2 in row_text:
-                        inside_table = True
-                        break
+    target_image_path = latest_file
 
-            # -----------------------------------------------------------------
-            # 2. Check for Footer / Exit Boundary
-            # -----------------------------------------------------------------
-            if inside_table:
-                for footer_kw in self.FOOTER_KEYWORDS:
-                    if footer_kw in row_text:
-                        inside_table = False
-                        break
+    if latest_file.lower().endswith(".pdf"):
+        print("⚡ PDF detected! Automatically converting to image in background...")
+        doc = pymupdf.open(latest_file)
+        page = doc[0]
+        pix = page.get_pixmap(dpi=150)
+        temp_img_path = os.path.join(image_dir, "_temp_ocr_page.png")
+        pix.save(temp_img_path)
+        target_image_path = temp_img_path
 
-            # -----------------------------------------------------------------
-            # 3. Route Row to Appropriate Bucket
-            # -----------------------------------------------------------------
-            if inside_table:
-                table_rows.append(row)
-            elif not table_rows:
-                patient_rows.append(row)
-            else:
-                footer_rows.append(row)
+    # Step 1: Execute OCR engine to get bounding boxes and rows
+    ocr = OCREngine()
+    ocr_results = ocr.process_report(target_image_path)
 
-        return {
-            "patient": patient_rows,
-            "table": table_rows,
-            "footer": footer_rows
+    # Step 2: Extract report type and column bounds from OCR output
+    report_type = ocr_results.get("patient", {}).get("report_type", "CBC")
+    columns = ocr_results.get("detected_columns", {})
+
+    # Step 3: Instantiate parser using ParserFactory
+    try:
+        parser = ParserFactory.get_parser(report_type, columns)
+        rows = ocr.group_into_rows(ocr.extract_boxes(target_image_path))
+        parsed_lab_tests = parser.parse_table(rows) if hasattr(parser, "parse_table") else parser.parse(rows)
+        
+        parsed_data = {
+            "patient": ocr_results.get("patient", {}),
+            "lab_tests": parsed_lab_tests,
+            "total_tests_found": len(parsed_lab_tests)
         }
+    except Exception as e:
+        print(f"⚠️ Factory parse warning ({e}). Falling back to baseline OCR results.")
+        parsed_data = ocr_results
+
+    # Step 4: Write finalized structured JSON output
+    os.makedirs(os.path.dirname(output_json_path), exist_ok=True)
+    with open(output_json_path, "w", encoding="utf-8") as f:
+        json.dump(parsed_data, f, indent=4)
+
+    temp_file = os.path.join(image_dir, "_temp_ocr_page.png")
+    if os.path.exists(temp_file):
+        os.remove(temp_file)
+
+    print(f"✅ OCR extraction complete! Saved to report_output.json")
+
+if __name__ == "__main__":
+    process_latest_report()
