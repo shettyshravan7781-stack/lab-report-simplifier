@@ -1,218 +1,430 @@
 import os
+import sys
 import json
 import joblib
+import re
+import time
+import logging
+import warnings
+import subprocess
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import shap
-import subprocess
+from google import genai
 
-# =========================================================
-# AUTOMATION STEP: Run OCR on newest image before loading model
-# =========================================================
-print("Running OCR on newest lab report...")
-try:
-    subprocess.run(["python", "OCR/report_parser.py"], check=True)
-except Exception as e:
-    print(f"Warning: OCR script execution failed: {e}")
-# =========================================================
+# Suppress runtime deprecation and non-critical warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# 1. Folder Setup
+# Suppress Google GenAI SDK verbose internal loggers (fixes AFC warnings)
+logging.getLogger("google.genai").setLevel(logging.ERROR)
+
+# -------------------------------------------------------------------------
+# Google Gemini API Key Setup
+# -------------------------------------------------------------------------
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6JwuJYiIdUVQMBjdBeDlHGkcRFTZKeDEAwpzzhcKklBLQ")
+
+# -------------------------------------------------------------------------
+# 1. ENVIRONMENT & PATH SETUP
+# -------------------------------------------------------------------------
 BASE_DIR = r"C:\AI_Lab_Report"
 MODELS_DIR = os.path.join(BASE_DIR, "output", "saved_models")
 JSON_PATH = os.path.join(BASE_DIR, "OCR", "output", "report_output.json")
 SHAP_OUTPUT_DIR = os.path.join(BASE_DIR, "output", "shap_plots")
-os.makedirs(SHAP_OUTPUT_DIR, exist_ok=True)
+INPUT_DIR = os.path.join(BASE_DIR, "input")
+PARSER_SCRIPT = os.path.join(BASE_DIR, "OCR", "report_parser.py")
 
-# 2. Read OCR Data
-with open(JSON_PATH, "r") as f:
-    ocr_data = json.load(f)
+os.makedirs(SHAP_OUTPUT_DIR, exist_ok=True)
+os.makedirs(INPUT_DIR, exist_ok=True)
+
+# -------------------------------------------------------------------------
+# 2. UNIVERSAL CLINICAL REFERENCE DICTIONARY
+# -------------------------------------------------------------------------
+FALLBACK_REF_RANGES = {
+    "Hemoglobin": "13.0 - 17.0", "Haemoglobin": "13.0 - 17.0", "Hb": "13.0 - 17.0",
+    "RBC Count": "4.5 - 5.5", "Hematocrit": "40.0 - 50.0", "Hct": "40.0 - 50.0",
+    "MCV": "81.0 - 101.0", "MCH": "27.0 - 32.0", "MCHC": "31.5 - 34.5",
+    "RDW-CV": "11.6 - 14.0", "RDW-SD": "39.0 - 46.0", "WBC": "4000 - 10000",
+    "Total Leucocyte Count": "4000 - 10000", "Platelet Count": "150000 - 410000",
+    "PCT": "0.10 - 0.40", "MPV": "7.5 - 11.5", "PDW": "9.0 - 17.0",
+    "Neutrophils": "40 - 70", "Lymphocytes": "20 - 40", "Eosinophils": "1 - 6",
+    "Monocytes": "2 - 10", "Basophils": "0 - 1",
+    "Bilirubin Total": "0.2 - 1.2", "Bilirubin Direct": "0.0 - 0.3", "Bilirubin Indirect": "0.2 - 0.8",
+    "ALT": "7 - 56", "ALT/SGPT": "7 - 56", "SGPT": "7 - 56",
+    "AST": "10 - 40", "AST/SGOT": "10 - 40", "SGOT": "10 - 40",
+    "ALP": "44 - 147", "GGT": "9 - 48", "Protein Total": "6.0 - 8.3",
+    "Albumin": "3.5 - 5.0", "Globulin": "2.0 - 3.5",
+    "Creatinine": "0.7 - 1.3", "Urea": "15 - 45", "Blood Urea": "15 - 45",
+    "BUN": "7 - 20", "Blood Urea Nitrogen": "7 - 20", "eGFR": "90 - 120", 
+    "Estimated GFR": "90 - 120", "Uric Acid": "3.5 - 7.2",
+    "Total Cholesterol": "125 - 200", "Triglycerides": "30 - 150",
+    "HDL": "40 - 60", "LDL": "50 - 100", "VLDL": "5 - 40", "Non-HDL": "0 - 130",
+    "HbA1c": "4.0 - 5.6", "FBS": "70 - 99", "Fasting Glucose": "70 - 99",
+    "PPBS": "70 - 140", "Postprandial Glucose": "70 - 140",
+    "TT3": "75 - 175", "T3, TOTAL": "80 - 200", "Total T3": "80 - 200",
+    "TT4": "4.5 - 12.0", "T4, TOTAL": "4.5 - 12.5", "Total T4": "4.5 - 12.5",
+    "TSH": "0.4 - 4.2", "Specific Gravity": "1.005 - 1.030", "pH": "4.6 - 8.0",
+    "Serum Iron": "60 - 170", "Iron": "60 - 170", "TIBC": "240 - 450", 
+    "UIBC": "111 - 343", "Transferrin Saturation": "20 - 50",
+    "Sodium": "137 - 145", "Potassium": "3.5 - 5.1", "Chloride": "98 - 107",
+    "Calcium": "8.5 - 10.5", "Phosphorus": "2.5 - 4.5",
+    "Urine Albumin": "0 - 20", "Urine Creatinine": "20 - 320", "Albumin/Creatinine Ratio": "0 - 30",
+    "Prothrombin Time": "11.0 - 13.5", "Bleeding Time": "2.0 - 7.0", "Clotting Time": "3.0 - 9.0", "APTT": "25.0 - 35.0"
+}
+
+# -------------------------------------------------------------------------
+# 3. PURGE STALE CACHE & EXECUTE OCR PIPELINE
+# -------------------------------------------------------------------------
+if os.path.exists(JSON_PATH):
+    try:
+        os.remove(JSON_PATH)
+        print("[INIT] Flushed stale OCR output cache.")
+    except Exception as e:
+        print(f"[WARN] Failed to flush cache: {e}")
+
+print("[OCR] Executing OCR Parser Engine...")
+try:
+    subprocess.run([sys.executable, PARSER_SCRIPT], check=True)
+except Exception as e:
+    print(f"[ERROR] OCR execution error: {e}")
+
+# -------------------------------------------------------------------------
+# 4. READ & INGEST EXTRACTED OCR DATA
+# -------------------------------------------------------------------------
+if not os.path.exists(JSON_PATH):
+    raise FileNotFoundError(f"CRITICAL: Failed to generate {JSON_PATH}. Check parser script paths.")
+
+with open(JSON_PATH, "r", encoding="utf-8") as f:
+    raw_ocr = json.load(f)
+
+all_tests_list = []
+patient_info = {}
+
+if isinstance(raw_ocr, list):
+    for page in raw_ocr:
+        all_tests_list.extend(page.get("tests", []) or page.get("lab_tests", []))
+        if page.get("patient"):
+            patient_info.update(page.get("patient"))
+elif isinstance(raw_ocr, dict):
+    all_tests_list = raw_ocr.get("tests", []) or raw_ocr.get("lab_tests", [])
+    patient_info = raw_ocr.get("patient", {})
 
 extracted_tests = {}
 abnormal_findings = []
 
-tests_list = ocr_data.get("tests", []) or ocr_data.get("lab_tests", [])
+def parse_age_gender(p_dict, tests_list):
+    raw_age = p_dict.get('age') or p_dict.get('Age') or ""
+    raw_gender = p_dict.get('gender') or p_dict.get('Gender') or p_dict.get('sex') or ""
+    
+    combined_str = f"{raw_age} {raw_gender}"
+    
+    if not str(raw_age).strip() or str(raw_age).strip().upper() in ["N/A", "NONE", ""]:
+        for item in tests_list:
+            t_str = str(item.get("test") or "") + " " + str(item.get("value") or "")
+            if re.search(r"\b(age|yrs|years)\b", t_str, re.IGNORECASE):
+                combined_str += " " + t_str
 
-for item in tests_list:
-    val_str = str(item.get("value", "")).strip()
+    age_match = re.search(r"\b([1-9][0-9]?|1[01][0-9]|120)\s*(?:yrs|years|y/o|y)?\b", combined_str, re.IGNORECASE)
+    extracted_age = age_match.group(1) if age_match else "N/A"
+    extracted_gender = "Female" if re.search(r"\b(female|fem|f)\b", combined_str, re.IGNORECASE) else "Male" if re.search(r"\b(male|m)\b", combined_str, re.IGNORECASE) else "N/A"
+        
+    return extracted_age, extracted_gender
+
+clean_age, clean_gender = parse_age_gender(patient_info, all_tests_list)
+
+def extract_numeric(val):
+    if val is None:
+        return None
+    match = re.search(r"([\d]+\.?[\d]*)", str(val))
+    return float(match.group(1)) if match else None
+
+def normalize_biomarker_value(test_name, val):
+    if val is None:
+        return None
+    name_upper = test_name.upper()
+    if "PCT" in name_upper and val > 2.0:
+        return round(val / 100.0, 3)
+    if "PLATELET" in name_upper and val > 1000000:
+        return round(val / 1000.0, 1)
+    return val
+
+def parse_ocr_entry(item):
+    raw_test = str(item.get("test") or item.get("test_name") or "").strip()
+    raw_val = str(item.get("value") or "").strip()
+    raw_ref = str(item.get("reference") or item.get("reference_range") or item.get("unit") or "").strip()
+
+    num_val = extract_numeric(raw_val)
+    clean_test_name = raw_test
+
+    if num_val is None:
+        match_in_test = re.search(r"^(.*?)\s+([\d]+\.?[\d]*)$", raw_test)
+        if match_in_test:
+            clean_test_name = match_in_test.group(1).strip()
+            num_val = float(match_in_test.group(2))
+
+    if not raw_ref or raw_ref.upper() in ["N/A", ""]:
+        for k, ref_v in FALLBACK_REF_RANGES.items():
+            if k.lower() in clean_test_name.lower():
+                raw_ref = ref_v
+                break
+
+    return clean_test_name, num_val, raw_val, raw_ref
+
+def is_out_of_range(val, ref_range):
+    if not ref_range or str(ref_range).strip().upper() in ["N/A", ""]:
+        return False
+    ref_str = str(ref_range).strip().lower()
+
     try:
-        val_float = float(val_str)
-        test_name = item.get("test") or item.get("test_name", "")
-        if test_name:
-            extracted_tests[test_name] = val_float
-            if item.get("flag") in ["High", "Low"]:
-                abnormal_findings.append({
-                    "test": test_name, 
-                    "val": val_float, 
-                    "unit": item.get('unit', ''), 
-                    "flag": item.get('flag')
-                })
-    except ValueError:
+        num_val = float(val)
+    except (ValueError, TypeError):
+        return False
+
+    if "<" in ref_str:
+        lim = extract_numeric(ref_str)
+        return num_val >= lim if lim is not None else False
+    if ">" in ref_str:
+        lim = extract_numeric(ref_str)
+        return num_val <= lim if lim is not None else False
+
+    numbers = re.findall(r"[\d]+\.?[\d]*", ref_str)
+    if len(numbers) >= 2:
+        low, high = float(numbers[0]), float(numbers[1])
+        if low > high:
+            low, high = high, low
+        return num_val < low or num_val > high
+
+    return False
+
+GARBAGE_KEYWORDS = [
+    "SMART VISION", "COMPLEX", "ROAD", "MUMBAI", "CIRCADIAN", "VARIATION", 
+    "REGISTERED", "COLLECTED", "REPORTED ON", "SAMPLE TYPE", "TAT", "AGE :"
+]
+
+for item in all_tests_list:
+    test_name, num_val, raw_val_str, ref_range = parse_ocr_entry(item)
+    
+    if any(gb in test_name.upper() for gb in GARBAGE_KEYWORDS) or len(test_name) < 2:
         continue
 
-# 3. Comprehensive Mapping for ALL 10 Lab Report Panels
-mapping = {
-    # 1. Complete Blood Count (CBC)
-    "Haemoglobin": "Hemoglobin (g/dL)", "Hemoglobin": "Hemoglobin (g/dL)",
-    "RBC Count": "RBC Count (mil/µL)", "Hematocrit": "Hematocrit %", "Hct": "Hematocrit %",
-    "MCV": "MCV (fL)", "MCH": "MCH (pg)", "MCHC": "MCHC (g/dL)",
-    "RDW-CV": "RDW-CV %", "RDW-SD": "RDW-SD (fL)",
-    "Total Leucocyte Count": "WBC (cells/µL)", "WBC": "WBC (cells/µL)",
-    "Neutrophils": "Neutrophils %", "Lymphocytes": "Lymphocytes %",
-    "Eosinophils": "Eosinophils %", "Monocytes": "Monocytes %", "Basophils": "Basophils %",
-    "Platelet Count": "Platelet Count (×10^3/µL)", "MPV": "MPV (fL)",
+    num_val = normalize_biomarker_value(test_name, num_val)
+    
+    if test_name and num_val is not None:
+        extracted_tests[test_name] = num_val
+        if is_out_of_range(num_val, ref_range):
+            abnormal_findings.append({
+                "test": test_name,
+                "val": num_val,
+                "unit": item.get("unit", ""),
+                "flag": f"Out of Range (Ref: {ref_range})"
+            })
 
-    # 2. Liver Function Test (LFT)
-    "Total Protein": "Protein Total (g/dL)", "Albumin": "Albumin (g/dL)",
-    "Globulin": "Globulin (g/dL)", "Albumin/Globulin Ratio": "Ratio_Albumin_Globulin",
-    "A/G Ratio": "A/G Ratio", "Total Bilirubin": "Bilirubin Total (mg/dL)",
-    "Direct Bilirubin": "Bilirubin Direct (mg/dL)", "Indirect Bilirubin": "Bilirubin Indirect (mg/dL)",
-    "SGOT (AST)": "AST/SGOT (U/L)", "AST": "AST/SGOT (U/L)",
-    "SGPT (ALT)": "ALT/SGPT (U/L)", "ALT": "ALT/SGPT (U/L)",
-    "Alkaline Phosphatase (ALP)": "ALP (U/L)", "ALP": "ALP (U/L)",
-    "Gamma Glutamyl Transferase (GGT)": "GGT (U/L)", "GGT": "GGT (U/L)",
-
-    # 3. Kidney Function Test (KFT / Renal)
-    "Serum Creatinine": "Creatinine (mg/dL)", "Creatinine": "Creatinine (mg/dL)",
-    "Blood Urea": "Urea (mg/dL)", "Urea": "Urea (mg/dL)", "BUN": "BUN (mg/dL)",
-    "BUN/Creatinine Ratio": "BUN/Creatinine Ratio", "Uric Acid": "Uric Acid (mg/dL)",
-    "eGFR": "eGFR (mL/min/1.73m²)",
-
-    # 4. Lipid Profile
-    "Total Cholesterol": "Total Cholesterol (mg/dL)", "HDL Cholesterol": "HDL (mg/dL)",
-    "LDL Cholesterol": "LDL (mg/dL)", "VLDL": "VLDL (mg/dL)",
-    "Triglycerides": "Triglycerides (mg/dL)", "Non-HDL": "Non-HDL (mg/dL)",
-
-    # 5. Diabetes Profile
-    "Fasting Blood Sugar": "FBS (mg/dL)", "FBS": "FBS (mg/dL)",
-    "Postprandial Blood Sugar": "PLBS (mg/dL)", "PLBS": "PLBS (mg/dL)",
-    "HbA1c": "HbA1c %", "Estimated Average Glucose": "Estimated Avg Glucose (mg/dL)",
-
-    # 6. Thyroid Profile
-    "TSH": "TSH (µIU/mL)", "Total T3": "TT3 (ng/dL)", "TT3": "TT3 (ng/dL)",
-    "Total T4": "TT4 (µg/dL)", "TT4": "TT4 (µg/dL)",
-
-    # 7. Electrolytes & Bone Profile
-    "Sodium": "Sodium (mmol/L)", "Potassium": "Potassium (mmol/L)",
-    "Chloride": "Chloride (mmol/L)", "Calcium": "Calcium (mg/dL)",
-    "Phosphorus": "Phosphorus (mg/dL)",
-
-    # 8. Iron Profile
-    "Serum Iron": "Iron (µg/dL)", "Iron": "Iron (µg/dL)",
-    "TIBC": "TIBC (µg/dL)", "UIBC": "UIBC (µg/dL)",
-    "Transferrin Saturation": "Transferrin Saturation %",
-
-    # 9. Urine Microalbumin Panel
-    "Urine Albumin": "Urine Albumin (mg/L)", "Urine Creatinine": "Urine Creatinine (mg/dL)",
-    "Albumin/Creatinine Ratio": "Albumin/Creatinine Ratio",
-
-    # 10. Urinalysis Parameters
-    "Specific Gravity": "Specific Gravity", "pH": "pH"
-}
-
-# Auto-detect panel type based on present tests
-raw_panel = str(ocr_data.get('report_type', 'N/A')).upper()
+raw_panel = str(patient_info.get('report_type', 'N/A')).upper()
 
 def detect_panel(tests_keys, raw_type):
-    joined = " ".join(tests_keys).upper() + " " + raw_type
-    if "HBA1C" in joined or "GLUCOSE" in joined or "FBS" in joined: return "Diabetes Profile"
-    if "CREATININE" in joined or "UREA" in joined or "BUN" in joined: return "Kidney Function Test (KFT)"
-    if "CHOLESTEROL" in joined or "TRIGLYCERIDES" in joined or "HDL" in joined: return "Lipid Profile"
-    if "BILIRUBIN" in joined or "ALT" in joined or "AST" in joined or "SGOT" in joined: return "Liver Function Test (LFT)"
-    if "TSH" in joined or "TT3" in joined or "TT4" in joined: return "Thyroid Profile"
-    if "IRON" in joined or "TIBC" in joined: return "Iron Profile"
-    if "URINE" in joined or "SPECIFIC GRAVITY" in joined: return "Urinalysis"
-    if "HEMOGLOBIN" in joined or "WBC" in joined or "RBC" in joined or "PLATELET" in joined: return "Complete Blood Count (CBC)"
+    joined = " ".join(tests_keys).upper() + " " + raw_type.upper()
+    detected = []
+    
+    # Exact word boundaries to avoid matching "PT" inside "SGPT"
+    if re.search(r"\b(PROTHROMBIN|BLEEDING TIME|CLOTTING TIME|APTT|PT|INR|FIBRINOGEN|COAGULATION)\b", joined):
+        detected.append("Coagulation / Hemostasis Profile")
+    if re.search(r"\b(T3|T4|TSH|THYROID)\b", joined): 
+        detected.append("Thyroid Profile")
+    if re.search(r"\b(HBA1C|GLUCOSE|FBS|PPBS|BLOOD SUGAR)\b", joined): 
+        detected.append("Diabetes Profile")
+    if re.search(r"\b(CREATININE|UREA|BUN|EGFR|URIC ACID)\b", joined): 
+        detected.append("Kidney Function Test (KFT)")
+    if re.search(r"\b(CHOLESTEROL|TRIGLYCERIDES|HDL|LDL|VLDL)\b", joined): 
+        detected.append("Lipid Profile")
+    if re.search(r"\b(BILIRUBIN|ALT|AST|SGOT|SGPT|GGT|ALP)\b", joined): 
+        detected.append("Liver Function Test (LFT)")
+    if re.search(r"\b(HEMOGLOBIN|HAEMOGLOBIN|WBC|LEUCOCYTE|RBC|PLATELET|NEUTROPHILS|MPV|MCV)\b", joined): 
+        detected.append("Complete Blood Count (CBC)")
+    if re.search(r"\b(URINE|URINALYSIS|SPECIFIC GRAVITY)\b", joined): 
+        detected.append("Urinalysis")
+
+    if len(detected) > 1:
+        return "Comprehensive Multi-Panel Assessment (" + ", ".join(detected) + ")"
+    elif len(detected) == 1:
+        return detected[0]
     return "General Clinical Panel"
 
 panel_type = detect_panel(list(extracted_tests.keys()), raw_panel)
 
-# Select SHAP target dynamically for the report type
-SHAP_TARGET_MAP = {
-    "Diabetes Profile": "Target_Diabetes_Risk",
-    "Kidney Function Test (KFT)": "Target_Kidney_Risk",
-    "Lipid Profile": "Target_Lipid_Risk",
-    "Liver Function Test (LFT)": "Target_Liver_Risk",
-    "Complete Blood Count (CBC)": "Target_Anemia_Risk",
-    "Iron Profile": "Target_Anemia_Risk"
-}
-target_for_shap = SHAP_TARGET_MAP.get(panel_type, "Target_Overall_Health_Risk")
+# -------------------------------------------------------------------------
+# 5. TERMINAL HEADER
+# -------------------------------------------------------------------------
+patient_name = patient_info.get('name', 'N/A')
+if patient_name == 'N/A' or any(gb in patient_name.upper() for gb in ["STEROID", "THERAPY", "ROAD"]):
+    patient_name = "Dynamic Patient"
 
-print("\n" + "=" * 65)
-print("     AI CLINICAL DIAGNOSTIC PIPELINE — INTEGRATED AUDIT")
-print("=" * 65)
-print(f"Patient Name : {ocr_data.get('patient', {}).get('name', 'N/A')}")
-print(f"Age / Gender : {ocr_data.get('patient', {}).get('age', 'N/A')} / {ocr_data.get('patient', {}).get('gender', 'N/A')}")
-print(f"Panel Type   : {panel_type}")
-print("-" * 65)
+print("\n" + "═" * 75)
+print("     AI CLINICAL DIAGNOSTIC PIPELINE — INTEGRATED AUDIT REPORT")
+print("═" * 75)
+print(f" Patient Name : {patient_name}")
+print(f" Age / Gender : {clean_age} / {clean_gender}")
+print(f" Target Panel : {panel_type}")
+print("─" * 75)
 
-print("\n[SECTION 1: ORGAN RISK PROBABILITIES]")
+# -------------------------------------------------------------------------
+# 6. DISPLAY EXTRACTED PARAMETERS TABLE
+# -------------------------------------------------------------------------
+print("\n[SECTION 1: EXTRACTED LABORATORY BIOMARKERS]")
+print(f"{'Biomarker Parameter':<32} | {'Extracted Value':<18} | {'Status':<15}")
+print("─" * 75)
+for test_k, val_v in extracted_tests.items():
+    is_abnormal = any(ab["test"] == test_k for ab in abnormal_findings)
+    status_str = "⚠️ OUT OF RANGE" if is_abnormal else "✅ NORMAL"
+    print(f"{test_k:<32} | {str(val_v):<18} | {status_str:<15}")
 
-for pkl_file in sorted(os.listdir(MODELS_DIR)):
-    if pkl_file.endswith(".pkl"):
-        target_name = pkl_file.replace("xgboost_", "").replace(".pkl", "")
-        model_path = os.path.join(MODELS_DIR, pkl_file)
-        model = joblib.load(model_path)
-
-        feature_dict = {feat: np.nan for feat in model.feature_names_in_}
-        
-        for ocr_k, model_k in mapping.items():
-            if ocr_k in extracted_tests and model_k in feature_dict:
-                feature_dict[model_k] = extracted_tests[ocr_k]
-                
-        if "patient" in ocr_data and "age" in ocr_data["patient"] and "Age" in feature_dict:
-            raw_age = ocr_data["patient"]["age"]
-            try:
-                clean_age = float(''.join(c for c in str(raw_age) if c.isdigit() or c == '.'))
-                feature_dict["Age"] = clean_age
-            except ValueError:
-                feature_dict["Age"] = 0.0
-
-        df_in = pd.DataFrame([feature_dict])
-        df_in = df_in.apply(pd.to_numeric, errors='coerce').fillna(0.0)
-
-        prob = model.predict_proba(df_in)[0][1] if hasattr(model, "predict_proba") else model.predict(df_in)[0]
-        
-        # Clinical heuristic rule flags
-        if target_name == "Target_Liver_Risk" and any(item["test"] in ["Gamma Glutamyl Transferase (GGT)", "Alkaline Phosphatase (ALP)"] for item in abnormal_findings):
-            prob = max(prob, 0.85)
-        elif target_name == "Target_Anemia_Risk" and any("Hb" in item["test"] or "Hemoglobin" in item["test"] for item in abnormal_findings):
-            prob = max(prob, 0.85)
-
-        risk_pct = prob * 100
-        status = "HIGH RISK ⚠️" if risk_pct > 50 else "LOW RISK  ✅"
-        print(f" • {target_name:28s}: {risk_pct:6.2f}%  [{status}]")
-
-        # Generate SHAP explanation plot dynamically for detected target
-        if target_name == target_for_shap or (target_for_shap not in [f.replace("xgboost_", "").replace(".pkl", "") for f in os.listdir(MODELS_DIR)] and target_name == "Target_Overall_Health_Risk"):
-            explainer = shap.TreeExplainer(model)
-            shap_vals = explainer(df_in)
-            plt.figure(figsize=(10, 4))
-            if len(shap_vals.shape) == 3:
-                shap.plots.bar(shap_vals[0, :, 1], max_display=8, show=False)
-            else:
-                shap.plots.bar(shap_vals[0], max_display=8, show=False)
-            plt.title(f"SHAP Biomarker Attribution: {panel_type} Risk Profile", fontsize=11)
-            plt.tight_layout()
-            shap_path = os.path.join(SHAP_OUTPUT_DIR, "patient_risk_shap_bar.png")
-            plt.savefig(shap_path, dpi=300)
-            plt.close()
-
-print("\n[SECTION 2: GENERATED VISUAL & AUDIT ARTIFACTS]")
-print(f" ✓ SHAP Plot Saved         : {os.path.join(SHAP_OUTPUT_DIR, 'patient_risk_shap_bar.png')}")
-print(f" ✓ Model Benchmarks Report: {os.path.join(BASE_DIR, 'output', 'Model_Benchmarking_Results.xlsx')}")
-
-print("\n[SECTION 3: CLINICAL SUMMARY]")
+# -------------------------------------------------------------------------
+# 7. DISPLAY ABNORMAL CRITICAL FLAGS
+# -------------------------------------------------------------------------
+print("\n[SECTION 2: CRITICAL CLINICAL FLAGS & OUT-OF-RANGE PARSING]")
 if abnormal_findings:
-    print(" • Detected Biomarker Abnormalities:")
     for item in abnormal_findings:
-        print(f"   - {item['test']}: {item['val']} {item['unit']} ({item['flag']})")
-    
-    print("\n • Diagnostic Assessment:")
-    print(f"   Abnormal findings identified in {panel_type}.")
-    print("   Recommendation: Medical consultation for panel-specific evaluation.")
+        print(f" 🚨 FLAG DETECTED: {item['test']} = {item['val']} {item['unit']} ➔ {item['flag']}")
 else:
-    print(" • No out-of-range biomarkers detected.")
-    print("\n • Diagnostic Assessment:")
-    print("   All measured parameters are within standard biological reference ranges.")
-print("=" * 65)
+    print(" ✅ No parameter reference range deviations detected.")
+
+# -------------------------------------------------------------------------
+# 8. DYNAMIC FUZZY MATCHING MACHINE LEARNING ENGINE (XGBoost)
+# -------------------------------------------------------------------------
+print("\n[SECTION 3: XGBoost MACHINE LEARNING ORGAN RISK PROBABILITIES]")
+calculated_risks = []
+
+def fuzzy_map_feature(extracted_dict, target_feature):
+    tf_clean = re.sub(r'[^a-zA-Z0-9]', '', target_feature).lower()
+    
+    for ext_k, val in extracted_dict.items():
+        ext_clean = re.sub(r'[^a-zA-Z0-9]', '', ext_k).lower()
+        if ext_clean in tf_clean or tf_clean in ext_clean:
+            return val
+            
+    for ext_k, val in extracted_dict.items():
+        ek_l = ext_k.lower()
+        tf_l = target_feature.lower()
+        if ("hb" in ek_l or "hemoglobin" in ek_l) and "hemoglobin" in tf_l: return val
+        if ("wbc" in ek_l or "leucocyte" in ek_l) and "wbc" in tf_l: return val
+        if "creatinine" in ek_l and "creatinine" in tf_l: return val
+        if "urea" in ek_l and "urea" in tf_l: return val
+        if "tsh" in ek_l and "tsh" in tf_l: return val
+        if ("fbs" in ek_l or "fasting" in ek_l) and ("fbs" in tf_l or "fasting" in tf_l): return val
+        if "hba1c" in ek_l and "hba1c" in tf_l: return val
+
+    return np.nan
+
+if os.path.exists(MODELS_DIR):
+    for pkl_file in sorted(os.listdir(MODELS_DIR)):
+        if pkl_file.endswith(".pkl"):
+            target_name = pkl_file.replace("xgboost_", "").replace(".pkl", "")
+            model_path = os.path.join(MODELS_DIR, pkl_file)
+            model = joblib.load(model_path)
+
+            if not hasattr(model, "feature_names_in_"):
+                continue
+
+            feature_dict = {feat: np.nan for feat in model.feature_names_in_}
+            
+            for feat in model.feature_names_in_:
+                val = fuzzy_map_feature(extracted_tests, feat)
+                if not np.isnan(val):
+                    feature_dict[feat] = val
+
+            if clean_age != 'N/A' and "Age" in feature_dict:
+                try:
+                    feature_dict["Age"] = float(clean_age)
+                except ValueError:
+                    feature_dict["Age"] = 0.0
+
+            df_in = pd.DataFrame([feature_dict]).apply(pd.to_numeric, errors='coerce').fillna(0.0)
+            prob = model.predict_proba(df_in)[0][1] if hasattr(model, "predict_proba") else model.predict(df_in)[0]
+
+            abnormal_names = [item["test"].lower() for item in abnormal_findings]
+            if target_name == "Target_Kidney_Risk" and any(kw in name for name in abnormal_names for kw in ["creatinine", "urea", "bun", "egfr"]):
+                prob = max(prob, 0.85)
+
+            risk_pct = prob * 100
+            status = "HIGH RISK ⚠️" if risk_pct > 50 else "LOW RISK   ✅"
+            print(f" • {target_name:28s}: {risk_pct:6.2f}%  [{status}]")
+            calculated_risks.append(f"{target_name}: {risk_pct:.2f}% ({status})")
+else:
+    print(" [WARN] No saved models found in directory.")
+
+# -------------------------------------------------------------------------
+# 9. DETAILED CLINICAL NARRATIVE GENERATOR (GEMINI LLM WITH RETRY & FALLBACK)
+# -------------------------------------------------------------------------
+def generate_gemini_summary(p_name, age, gender, p_type, extracted_dict, abnormal_list, risk_summary):
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    prompt = f"""
+    You are an expert Medical Pathologist and Clinical AI Consultant.
+    Analyze this lab report payload and generate a structured, easy-to-read assessment.
+
+    PATIENT: {p_name} (Age: {age}, Gender: {gender})
+    PANEL TYPE: {p_type}
+
+    EXTRACTED LAB TESTS:
+    {json.dumps(extracted_dict, indent=2)}
+
+    OUT OF RANGE PARAMETERS:
+    {json.dumps(abnormal_list, indent=2)}
+
+    ML ORGAN RISK PREDICTIONS:
+    {risk_summary}
+
+    PROVIDE THESE 4 DETAILED SECTIONS IN PLAIN TEXT:
+
+    EXECUTIVE SUMMARY
+    - High-level overview of the patient's diagnostic profile.
+
+    BIOMARKER ANALYSIS
+    - Plain-language explanation of extracted biomarker values and their diagnostic meaning.
+
+    HEALTH THREATS & POTENTIAL RISKS
+    - Explicitly state potential diseases, organ dysfunctions, or systemic risks associated with any abnormal levels.
+
+    RECOMMENDED ACTION PLAN
+    - 4 to 5 clear, realistic next steps (lifestyle changes, follow-up tests, medical specialist consults).
+    """
+
+    # Updated hierarchy prioritizing gemini-3.6-flash
+    candidate_models = [
+        'gemini-3.6-flash', 
+        'gemini-2.5-flash', 
+        'gemini-3.6-flash'
+    ]
+
+    last_error = ""
+
+    for model_name in candidate_models:
+        for attempt in range(1, 3):
+            try:
+                # Pass empty tools list to silence the AFC warning as well
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(
+                        tools=[]
+                    )
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                last_error = str(e)
+                err_msg = last_error.upper()
+                if "NOT_FOUND" in err_msg or "404" in err_msg:
+                    # Model not available on this tier/endpoint, jump to next candidate model
+                    break
+                elif ("503" in err_msg or "UNAVAILABLE" in err_msg) and attempt < 2:
+                    time.sleep(2)
+                else:
+                    break
+
+    return f"Clinical summary generation unavailable. Last Error: {last_error}"
+
+print("\n[SECTION 4: DETAILED CLINICAL NARRATIVE & THREAT ASSESSMENT]")
+print("─" * 75)
+risk_text = "\n".join(calculated_risks) if calculated_risks else "No ML models loaded."
+summary_output = generate_gemini_summary(patient_name, clean_age, clean_gender, panel_type, extracted_tests, abnormal_findings, risk_text)
+print(summary_output)
+print("=" * 75)

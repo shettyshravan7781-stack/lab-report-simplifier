@@ -1,83 +1,21 @@
 {
-    "patient": {
-        "name": "Mr Dummy Patient ID PN",
-        "age": null,
-        "gender": "Male",
-        "uhid": "PN2",
-        "date": "24/06/2023",
-        "lab_name": "Hello@flabs.in"
+  "patient": {
+    "name": "ly factors II",
+    "age": "21",
+    "gender": "Female"
+  },
+  "tests": [
+    {
+      "test": "Registered on:",
+      "value": "02",
+      "unit": "N/A",
+      "reference": "Dec, 2X"
     },
-    "lab_tests": [
-        {
-            "test": "Total Leucocyte Count",
-            "value": "5000",
-            "unit": "",
-            "reference": "4000 - 10000",
-            "method": "/cumm"
-        },
-        {
-            "test": "Basophils",
-            "value": "0.00",
-            "unit": "0-1",
-            "reference": "",
-            "method": "%"
-        },
-        {
-            "test": "Absolute Neutrophils",
-            "value": "2500.00",
-            "unit": "",
-            "reference": "2000- 7000",
-            "method": "/cumm"
-        },
-        {
-            "test": "Absolute Lymphocytes",
-            "value": "2000.00",
-            "unit": "",
-            "reference": "1000 - 3000",
-            "method": "/cumm"
-        },
-        {
-            "test": "Absolute Eosinophils",
-            "value": "50.00",
-            "unit": "20 - 500",
-            "reference": "",
-            "method": "/cumm"
-        },
-        {
-            "test": "Absolute Monocytes",
-            "value": "450.00",
-            "unit": "200 - 1000",
-            "reference": "",
-            "method": "/cumm"
-        },
-        {
-            "test": "MCV",
-            "value": "80.00",
-            "unit": "81 - 101",
-            "reference": "",
-            "method": "fL"
-        },
-        {
-            "test": "MCH",
-            "value": "30.00",
-            "unit": "27 - 32",
-            "reference": "",
-            "method": "pg"
-        },
-        {
-            "test": "MCHC",
-            "value": "37.50",
-            "unit": "31.5 - 34.5",
-            "reference": "",
-            "method": "g/dL"
-        },
-        {
-            "test": "Platelet Count",
-            "value": "300000",
-            "unit": "",
-            "reference": "150000 - 410000",
-            "method": "/cumm"
-        }
-    ],
-    "total_tests_found": 10
+    {
+      "test": "Collected on:",
+      "value": "02",
+      "unit": "N/A",
+      "reference": "Dec, 2X"
+    }
+  ]
 }
