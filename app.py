@@ -26,16 +26,18 @@ SKIP_METADATA_KEYWORDS = [
 ]
 
 def auto_patch_deprecated_models():
-    """Ensures deprecated or decommissioned Gemini model strings are updated to active models."""
+    """Ensures deprecated or decommissioned Gemini model strings are updated across all script files."""
     try:
         py_files = glob.glob(os.path.join(BASE_DIR, "**", "*.py"), recursive=True)
         for filepath in py_files:
+            if os.path.basename(filepath) == "app.py":
+                continue
+                
             with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
             
-            # Patch decommissioned gemini-3.6-flash to current gemini-3.6-flash
-            updated_content = content.replace("gemini-3.6-flash", "gemini-3.6-flash")
-            updated_content = updated_content.replace("gemini-3.6-flash", "gemini-3.6-flash")
+            updated_content = content.replace("gemini-2.5-flash", "gemini-3.6-flash")
+            updated_content = updated_content.replace("gemini-1.5-flash", "gemini-3.6-flash")
             
             if updated_content != content:
                 with open(filepath, "w", encoding="utf-8") as f:
@@ -73,6 +75,16 @@ async def analyze_pdf(file: UploadFile = File(...)):
     auto_patch_deprecated_models()
 
     os.makedirs(INPUT_DIR, exist_ok=True)
+    
+    # Safely clear stale files without crashing on Windows file locks
+    for existing_file in os.listdir(INPUT_DIR):
+        file_path_to_remove = os.path.join(INPUT_DIR, existing_file)
+        if os.path.isfile(file_path_to_remove):
+            try:
+                os.remove(file_path_to_remove)
+            except PermissionError:
+                pass  # Ignore if locked by a previous process
+
     file_path = os.path.join(INPUT_DIR, file.filename)
     
     try:
@@ -83,6 +95,7 @@ async def analyze_pdf(file: UploadFile = File(...)):
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUTF8"] = "1"
+        env["PYTHONWARNINGS"] = "ignore"
 
         max_attempts = 3
         process = None
@@ -121,7 +134,10 @@ async def analyze_pdf(file: UploadFile = File(...)):
                 "terminal_logs": process.stdout
             })
         else:
-            raise HTTPException(status_code=500, detail="Pipeline executed, but report output JSON was not found.")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Pipeline failed to write output. Terminal stdout: {process.stdout} | stderr: {process.stderr}"
+            )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Execution error: {str(e)}")

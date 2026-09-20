@@ -1,10 +1,13 @@
 import os
 import re
 import json
+import time
 import pymupdf
+from dotenv import load_dotenv
 from google import genai
 
-
+# Load environment variables from .env
+load_dotenv()
 
 BASE_DIR = r"C:\AI_Lab_Report"
 INPUT_DIR = os.path.join(BASE_DIR, "input")
@@ -13,8 +16,9 @@ OUTPUT_JSON = os.path.join(OUTPUT_DIR, "report_output.json")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Google Gemini API Key
-GEMINI_API_KEY = "AQ.Ab8RN6JwuJYiIdUVQMBjdBeDlHGkcRFTZKeDEAwpzzhcKklBLQ"
+# Dynamic Gemini API Key lookup
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 
 def extract_text_row_by_row(pdf_path):
     doc = pymupdf.open(pdf_path)
@@ -37,19 +41,37 @@ def extract_text_row_by_row(pdf_path):
 
     return "\n".join(structured_lines)
 
+
 def parse_demographics(raw_text):
     patient_info = {"name": "Unknown Patient", "age": "N/A", "gender": "N/A"}
 
-    name_match = re.search(r"(?:Patient\s*Name|Name|Client\s*Name)\s*[:\-]?\s*([A-Za-z\s\.]+)", raw_text, re.IGNORECASE)
+    name_match = re.search(
+        r"(?:Patient\s*Name|Name|Client\s*Name)\s*[:\-]?\s*([A-Za-z\s\.]+)",
+        raw_text,
+        re.IGNORECASE,
+    )
     if name_match:
         extracted = name_match.group(1).split("\n")[0].strip()
-        for drop_kw in ["LAB", "DIAGNOSTICS", "REPORT", "DRLOGY", "AGE", "GENDER", "SEX", "DATE"]:
+        for drop_kw in [
+            "LAB",
+            "DIAGNOSTICS",
+            "REPORT",
+            "DRLOGY",
+            "AGE",
+            "GENDER",
+            "SEX",
+            "DATE",
+        ]:
             if re.search(rf"\b{drop_kw}\b", extracted, re.IGNORECASE):
-                extracted = re.split(rf"\b{drop_kw}\b", extracted, flags=re.IGNORECASE)[0].strip()
+                extracted = re.split(
+                    rf"\b{drop_kw}\b", extracted, flags=re.IGNORECASE
+                )[0].strip()
         if len(extracted) > 2:
             patient_info["name"] = extracted
 
-    age_match = re.search(r"\b([1-9][0-9]?)\s*(?:Yrs|Years|Y/O|Y)\b", raw_text, re.IGNORECASE)
+    age_match = re.search(
+        r"\b([1-9][0-9]?)\s*(?:Yrs|Years|Y/O|Y)\b", raw_text, re.IGNORECASE
+    )
     if age_match:
         patient_info["age"] = age_match.group(1)
 
@@ -60,102 +82,119 @@ def parse_demographics(raw_text):
 
     return patient_info
 
+
 def parse_tests_dynamic_fallback(raw_text):
+    """
+    Refined fallback parser that filters out phone numbers, addresses, UHID strings,
+    and non-biomarker header text.
+    """
     tests = []
     lines = raw_text.split("\n")
-    
-    skip_header_words = ["PATIENT", "DOCTOR", "DATE", "REF", "BIOLOGICAL", "PARAMETER", "REPORTED", "SAMPLE", "TAT", "AGE"]
-    stop_keywords = ["end of report", "notes:", "disclaimer", "methodology", "technician", "instrumentation"]
+
+    # Known noise keywords to ignore entirely
+    IGNORE_KEYWORDS = [
+        "PATIENT", "DOCTOR", "DATE", "REF", "UHID", "ROAD", "COMPLEX", "MUMBAI", 
+        "PHONE", "TEL", "ADDRESS", "DRLOGY", "REGISTERED", "COLLECTED", "REPORTED", 
+        "SAMPLE", "GENDER", "AGE", "0123456789", "SMART VISION"
+    ]
+
+    # Valid clinical biomarker patterns
+    VALID_TEST_KEYWORDS = [
+        "PROTHROMBIN", "PT", "INR", "APTT", "PTT", "FIBRINOGEN", "THROMBIN",
+        "BLEEDING TIME", "CLOTTING TIME", "PLATELET", "FACTOR"
+    ]
 
     for line in lines:
         line_clean = line.strip()
-        if not line_clean:
-            continue
-            
-        if any(sk in line_clean.lower() for sk in stop_keywords):
-            break
-
-        if any(hw in line_clean.upper() for hw in skip_header_words) and not re.search(r"\b(T3|T4|TSH|HbA1c|WBC|RBC|Hb|Hemoglobin)\b", line_clean, re.IGNORECASE):
+        if not line_clean or len(line_clean) < 3:
             continue
 
-        tokens = line_clean.split()
-        num_idx = -1
-        
-        for idx, token in enumerate(tokens):
-            if re.match(r"^\d+(\.\d+)?$", token.strip(",")) and not (idx > 0 and tokens[idx-1].upper() in ["TOTAL", "FREE"]):
-                num_idx = idx
-                break
+        # Skip lines matching noise keywords
+        if any(kw in line_clean.upper() for kw in IGNORE_KEYWORDS):
+            # Exception: allow if it explicitly contains a known test parameter
+            if not any(tk in line_clean.upper() for tk in VALID_TEST_KEYWORDS):
+                continue
 
-        if num_idx > 0:
-            raw_test_name = " ".join(tokens[:num_idx]).strip()
-            val = tokens[num_idx].strip(",")
-            remainder = tokens[num_idx+1:] if num_idx + 1 < len(tokens) else []
+        # Extract parameters using matching regex
+        # Look for [Test Name] [Value] [Optional Unit/Reference]
+        match = re.search(
+            r"^(.*?)\s+([\d]+\.?[\d]*)\s*(sec|seconds|mins|min|mg/dL|g/dL|uIU/mL|%|INR)?\s*(.*)$",
+            line_clean,
+            re.IGNORECASE
+        )
 
-            clean_test_name = re.sub(r"\s+[\d\.]+\s*(?:Normal|High|Low)?.*$", "", raw_test_name, flags=re.IGNORECASE).strip()
+        if match:
+            test_name = match.group(1).strip()
+            val = match.group(2).strip()
+            unit = match.group(3).strip() if match.group(3) else "N/A"
+            ref = match.group(4).strip() if match.group(4) else "N/A"
 
-            unit = "N/A"
-            ref = "N/A"
+            # Filter out pure digits or meaningless short names
+            if re.match(r"^[\d\s\-\|]+$", test_name) or len(test_name) < 2:
+                continue
 
-            if remainder:
-                if remainder[0] in ["ng/dL", "ug/dL", "uIU/mL", "µIU/mL", "mg/dL", "g/dL", "%", "mmol/L", "cells/cu.mm", "g/dl"]:
-                    unit = remainder[0]
-                    ref = " ".join(remainder[1:]) if len(remainder) > 1 else "N/A"
-                else:
-                    ref = " ".join(remainder)
-
-            if len(clean_test_name) >= 2:
-                tests.append({
-                    "test": clean_test_name,
-                    "value": val,
-                    "unit": unit,
-                    "reference": ref
-                })
+            tests.append({
+                "test": test_name,
+                "value": val,
+                "unit": unit,
+                "reference": ref
+            })
 
     return tests
 
+
 def parse_report_with_gemini(raw_text):
     if not GEMINI_API_KEY:
-        print("[OCR Gemini] Skipping LLM parsing: No API key provided.")
+        print("[OCR Gemini] Skipping LLM parsing: No GEMINI_API_KEY found.")
         return None
 
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        
-        prompt = f"""
-        You are an expert medical data extraction system. Extract ALL laboratory test parameters, numeric values, units, and reference ranges from this OCR text.
-        Also extract patient metadata (Name, Age, Gender). Do NOT fabricate data.
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
-        Return ONLY valid JSON with this exact structure:
-        {{
-          "patient": {{ "name": "extracted name or Unknown Patient", "age": "extracted age or N/A", "gender": "extracted gender or N/A" }},
-          "tests": [
-            {{ "test": "Parameter Name", "value": "123.4", "unit": "unit", "reference": "range" }}
-          ]
-        }}
+    prompt = f"""
+    You are an expert medical data extraction system. Extract ALL laboratory test parameters, numeric values, units, and reference ranges from this OCR text.
+    Ignore hospital headers, phone numbers, addresses, and UHID codes.
+    Also extract patient metadata (Name, Age, Gender). Do NOT fabricate data.
 
-        OCR TEXT:
-        {raw_text[:4000]}
-        """
+    Return ONLY valid JSON with this exact structure:
+    {{
+      "patient": {{ "name": "extracted name or Unknown Patient", "age": "extracted age or N/A", "gender": "extracted gender or N/A" }},
+      "tests": [
+        {{ "test": "Parameter Name", "value": "123.4", "unit": "unit", "reference": "range" }}
+      ]
+    }}
 
-        response = client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=prompt
-        )
+    OCR TEXT:
+    {raw_text[:4000]}
+    """
 
-        res_text = response.text
-        # Clean any accidental markdown code wrappers
-        res_text = re.sub(r'```json\s*', '', res_text)
-        res_text = re.sub(r'```\s*', '', res_text).strip()
-        
-        parsed = json.loads(res_text)
-        if parsed and parsed.get("tests") and len(parsed["tests"]) > 0:
-            print("[OCR Gemini] Successfully extracted test data using gemini-2.5-flash.")
-            return parsed
+    # Retry loop with exponential backoff (3s -> 6s -> 12s) to handle Gemini 503 capacity spikes
+    max_retries = 3
+    retry_delays = [3, 6, 12]
 
-    except Exception as e:
-        print(f"[OCR Gemini Error] API call exception: {str(e)}")
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.6-flash", 
+                contents=prompt
+            )
+
+            res_text = response.text
+            res_text = re.sub(r"```json\s*", "", res_text)
+            res_text = re.sub(r"```\s*", "", res_text).strip()
+
+            parsed = json.loads(res_text)
+            if parsed and parsed.get("tests") and len(parsed["tests"]) > 0:
+                print("[OCR Gemini] Successfully extracted test data using gemini-3.6-flash.")
+                return parsed
+
+        except Exception as e:
+            wait_time = retry_delays[attempt - 1]
+            print(f"[OCR Gemini Attempt {attempt}/{max_retries}] Exception: {str(e)}. Retrying in {wait_time}s...")
+            if attempt < max_retries:
+                time.sleep(wait_time)
 
     return None
+
 
 if __name__ == "__main__":
     if not os.path.exists(INPUT_DIR):
@@ -175,10 +214,7 @@ if __name__ == "__main__":
         print("[OCR] Executing dynamic fallback parser...")
         patient_data = parse_demographics(raw_text)
         tests_data = parse_tests_dynamic_fallback(raw_text)
-        parsed_data = {
-            "patient": patient_data,
-            "tests": tests_data
-        }
+        parsed_data = {"patient": patient_data, "tests": tests_data}
 
     with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
         json.dump(parsed_data, f, indent=2)

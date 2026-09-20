@@ -1,21 +1,33 @@
 {
   "patient": {
-    "name": "ly factors II",
-    "age": "21",
+    "name": "Yashvi M. Patel",
+    "age": "21 Years",
     "gender": "Female"
   },
   "tests": [
     {
-      "test": "Registered on:",
-      "value": "02",
-      "unit": "N/A",
-      "reference": "Dec, 2X"
+      "test": "Bleeding Time (BT)",
+      "value": "7",
+      "unit": "min.",
+      "reference": "3 - 10"
     },
     {
-      "test": "Collected on:",
-      "value": "02",
-      "unit": "N/A",
-      "reference": "Dec, 2X"
+      "test": "Clotting Time (CT)",
+      "value": "5",
+      "unit": "min.",
+      "reference": "2 - 7"
+    },
+    {
+      "test": "Prothrombin Time (PT)",
+      "value": "11.2",
+      "unit": "sec.",
+      "reference": "10.3 - 12.8"
+    },
+    {
+      "test": "Activated Partial Thromboplastin Time (APTT)",
+      "value": "35",
+      "unit": "sec.",
+      "reference": "25 - 37"
     }
   ]
 }
