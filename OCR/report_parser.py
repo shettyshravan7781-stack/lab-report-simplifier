@@ -3,8 +3,15 @@ import re
 import json
 import time
 import pymupdf
+import warnings
+import logging
 from dotenv import load_dotenv
 from google import genai
+
+# Suppress SDK warnings and internal loggers from printing to stdout
+warnings.filterwarnings("ignore")
+logging.getLogger("google").setLevel(logging.ERROR)
+logging.getLogger("google.genai").setLevel(logging.ERROR)
 
 # Load environment variables from .env
 load_dotenv()
@@ -16,7 +23,6 @@ OUTPUT_JSON = os.path.join(OUTPUT_DIR, "report_output.json")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Dynamic Gemini API Key lookup
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 
@@ -91,17 +97,16 @@ def parse_tests_dynamic_fallback(raw_text):
     tests = []
     lines = raw_text.split("\n")
 
-    # Known noise keywords to ignore entirely
     IGNORE_KEYWORDS = [
         "PATIENT", "DOCTOR", "DATE", "REF", "UHID", "ROAD", "COMPLEX", "MUMBAI", 
         "PHONE", "TEL", "ADDRESS", "DRLOGY", "REGISTERED", "COLLECTED", "REPORTED", 
         "SAMPLE", "GENDER", "AGE", "0123456789", "SMART VISION"
     ]
 
-    # Valid clinical biomarker patterns
     VALID_TEST_KEYWORDS = [
-        "PROTHROMBIN", "PT", "INR", "APTT", "PTT", "FIBRINOGEN", "THROMBIN",
-        "BLEEDING TIME", "CLOTTING TIME", "PLATELET", "FACTOR"
+        "HAEMOGLOBIN", "LEUCOCYTE", "NEUTROPHILS", "LYMPHOCYTES", "EOSINOPHILS",
+        "MONOCYTES", "BASOPHILS", "RBC", "MCV", "MCH", "MCHC", "HCT", "RDW",
+        "PLATELET", "PCT", "MPV", "PDW", "PROTHROMBIN", "PT", "INR"
     ]
 
     for line in lines:
@@ -109,16 +114,12 @@ def parse_tests_dynamic_fallback(raw_text):
         if not line_clean or len(line_clean) < 3:
             continue
 
-        # Skip lines matching noise keywords
         if any(kw in line_clean.upper() for kw in IGNORE_KEYWORDS):
-            # Exception: allow if it explicitly contains a known test parameter
             if not any(tk in line_clean.upper() for tk in VALID_TEST_KEYWORDS):
                 continue
 
-        # Extract parameters using matching regex
-        # Look for [Test Name] [Value] [Optional Unit/Reference]
         match = re.search(
-            r"^(.*?)\s+([\d]+\.?[\d]*)\s*(sec|seconds|mins|min|mg/dL|g/dL|uIU/mL|%|INR)?\s*(.*)$",
+            r"^(.*?)\s+([\d]+\.?[\d]*)\s*(sec|seconds|mins|min|mg/dL|g/dL|uIU/mL|%|INR|fL|/dL|10\^3/uL|10\^6/uL)?\s*(.*)$",
             line_clean,
             re.IGNORECASE
         )
@@ -129,7 +130,6 @@ def parse_tests_dynamic_fallback(raw_text):
             unit = match.group(3).strip() if match.group(3) else "N/A"
             ref = match.group(4).strip() if match.group(4) else "N/A"
 
-            # Filter out pure digits or meaningless short names
             if re.match(r"^[\d\s\-\|]+$", test_name) or len(test_name) < 2:
                 continue
 
@@ -145,7 +145,6 @@ def parse_tests_dynamic_fallback(raw_text):
 
 def parse_report_with_gemini(raw_text):
     if not GEMINI_API_KEY:
-        print("[OCR Gemini] Skipping LLM parsing: No GEMINI_API_KEY found.")
         return None
 
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -155,7 +154,7 @@ def parse_report_with_gemini(raw_text):
     Ignore hospital headers, phone numbers, addresses, and UHID codes.
     Also extract patient metadata (Name, Age, Gender). Do NOT fabricate data.
 
-    Return ONLY valid JSON with this exact structure:
+    Return ONLY raw valid JSON with this exact structure (do NOT wrap in ```json markdown codeblocks):
     {{
       "patient": {{ "name": "extracted name or Unknown Patient", "age": "extracted age or N/A", "gender": "extracted gender or N/A" }},
       "tests": [
@@ -167,31 +166,34 @@ def parse_report_with_gemini(raw_text):
     {raw_text[:4000]}
     """
 
-    # Retry loop with exponential backoff (3s -> 6s -> 12s) to handle Gemini 503 capacity spikes
-    max_retries = 3
-    retry_delays = [3, 6, 12]
+    candidate_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
 
-    for attempt in range(1, max_retries + 1):
+    for model_name in candidate_models:
         try:
             response = client.models.generate_content(
-                model="gemini-3.6-flash", 
+                model=model_name, 
                 contents=prompt
             )
 
-            res_text = response.text
-            res_text = re.sub(r"```json\s*", "", res_text)
-            res_text = re.sub(r"```\s*", "", res_text).strip()
+            res_text = response.text.strip()
+            # Robust JSON extraction: Strip potential markdown backticks
+            res_text = re.sub(r"^```json\s*", "", res_text, flags=re.MULTILINE)
+            res_text = re.sub(r"^```\s*", "", res_text, flags=re.MULTILINE)
+            res_text = res_text.strip("`").strip()
+
+            # Find the JSON boundaries explicitly
+            start_idx = res_text.find("{")
+            end_idx = res_text.rfind("}")
+            if start_idx != -1 and end_idx != -1:
+                res_text = res_text[start_idx:end_idx + 1]
 
             parsed = json.loads(res_text)
-            if parsed and parsed.get("tests") and len(parsed["tests"]) > 0:
-                print("[OCR Gemini] Successfully extracted test data using gemini-3.6-flash.")
+            if parsed and parsed.get("tests"):
+                print(f"[OCR Gemini] Successfully extracted test data using {model_name}.")
                 return parsed
 
-        except Exception as e:
-            wait_time = retry_delays[attempt - 1]
-            print(f"[OCR Gemini Attempt {attempt}/{max_retries}] Exception: {str(e)}. Retrying in {wait_time}s...")
-            if attempt < max_retries:
-                time.sleep(wait_time)
+        except Exception:
+            continue
 
     return None
 

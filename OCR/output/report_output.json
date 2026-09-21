@@ -1,33 +1,153 @@
 {
   "patient": {
-    "name": "Yashvi M. Patel",
-    "age": "21 Years",
-    "gender": "Female"
+    "name": "Mr Dummy Patient ID",
+    "age": "N/A",
+    "gender": "Male"
   },
   "tests": [
     {
-      "test": "Bleeding Time (BT)",
-      "value": "7",
-      "unit": "min.",
-      "reference": "3 - 10"
+      "test": "Haemoglobin",
+      "value": "15",
+      "unit": "N/A",
+      "reference": "13 - 17 g/dL"
     },
     {
-      "test": "Clotting Time (CT)",
+      "test": "Total Leucocyte Count",
+      "value": "5000",
+      "unit": "N/A",
+      "reference": "4000 - 10000 /cumm"
+    },
+    {
+      "test": "Neutrophils",
+      "value": "50",
+      "unit": "N/A",
+      "reference": "40 - 80 %"
+    },
+    {
+      "test": "Lymphocytes",
+      "value": "40",
+      "unit": "N/A",
+      "reference": "20 - 40 %"
+    },
+    {
+      "test": "Eosinophils",
+      "value": "1",
+      "unit": "N/A",
+      "reference": "1 - 6 %"
+    },
+    {
+      "test": "Monocytes",
+      "value": "9",
+      "unit": "N/A",
+      "reference": "2 - 10 %"
+    },
+    {
+      "test": "Basophils",
+      "value": "0.00",
+      "unit": "N/A",
+      "reference": "0 - 1 %"
+    },
+    {
+      "test": "Absolute Neutrophils",
+      "value": "2500.00",
+      "unit": "N/A",
+      "reference": "2000 - 7000 /cumm"
+    },
+    {
+      "test": "Absolute Lymphocytes",
+      "value": "2000.00",
+      "unit": "N/A",
+      "reference": "1000 - 3000 /cumm"
+    },
+    {
+      "test": "Absolute Eosinophils",
+      "value": "50.00",
+      "unit": "N/A",
+      "reference": "20 - 500 /cumm"
+    },
+    {
+      "test": "Absolute Monocytes",
+      "value": "450.00",
+      "unit": "N/A",
+      "reference": "200 - 1000 /cumm"
+    },
+    {
+      "test": "RBC Count",
       "value": "5",
-      "unit": "min.",
-      "reference": "2 - 7"
+      "unit": "N/A",
+      "reference": "4.5 - 5.5"
     },
     {
-      "test": "Prothrombin Time (PT)",
-      "value": "11.2",
-      "unit": "sec.",
-      "reference": "10.3 - 12.8"
+      "test": "MCV",
+      "value": "80.00",
+      "unit": "N/A",
+      "reference": "81 - 101 fL"
     },
     {
-      "test": "Activated Partial Thromboplastin Time (APTT)",
+      "test": "MCH",
+      "value": "30.00",
+      "unit": "N/A",
+      "reference": "27 - 32 pg"
+    },
+    {
+      "test": "MCHC",
+      "value": "37.50",
+      "unit": "N/A",
+      "reference": "31.5 - 34.5 g/dL"
+    },
+    {
+      "test": "Hct",
+      "value": "40",
+      "unit": "N/A",
+      "reference": "40 - 50 %"
+    },
+    {
+      "test": "RDW-CV",
+      "value": "12",
+      "unit": "N/A",
+      "reference": "11.6 - 14.0 %"
+    },
+    {
+      "test": "RDW-SD",
+      "value": "40",
+      "unit": "N/A",
+      "reference": "39 - 46 fL"
+    },
+    {
+      "test": "Platelet Count",
+      "value": "300000",
+      "unit": "N/A",
+      "reference": "150000 - 410000 /cumm"
+    },
+    {
+      "test": "PCT",
       "value": "35",
-      "unit": "sec.",
-      "reference": "25 - 37"
+      "unit": "N/A",
+      "reference": "N/A"
+    },
+    {
+      "test": "MPV",
+      "value": "8",
+      "unit": "N/A",
+      "reference": "7.5 - 11.5 fL"
+    },
+    {
+      "test": "PDW",
+      "value": "9",
+      "unit": "N/A",
+      "reference": "N/A"
+    },
+    {
+      "test": "1 /",
+      "value": "2",
+      "unit": "N/A",
+      "reference": "N/A"
+    },
+    {
+      "test": "2 /",
+      "value": "2",
+      "unit": "N/A",
+      "reference": "N/A"
     }
   ]
 }

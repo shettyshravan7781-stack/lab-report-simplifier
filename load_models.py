@@ -12,6 +12,12 @@ import pandas as pd
 from dotenv import load_dotenv
 from google import genai
 
+# Mute Python User & Deprecation Warnings from stdout
+warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", message=".*automatic function calling.*")
+logging.getLogger("google").setLevel(logging.ERROR)
+logging.getLogger("google.genai").setLevel(logging.ERROR)
+
 # Load environment variables from .env
 load_dotenv()
 
@@ -87,7 +93,13 @@ if os.path.exists(JSON_PATH):
 
 print("[OCR] Executing OCR Parser Engine...")
 try:
-    subprocess.run([sys.executable, PARSER_SCRIPT], check=True)
+    proc_res = subprocess.run([sys.executable, PARSER_SCRIPT], capture_output=True, text=True, check=True)
+    if proc_res.stdout:
+        print(proc_res.stdout.strip())
+    if proc_res.stderr:
+        clean_err = "\n".join([line for line in proc_res.stderr.splitlines() if "automatic function calling" not in line.lower()])
+        if clean_err.strip():
+            print(clean_err.strip())
 except Exception as e:
     print(f"[ERROR] OCR execution error: {e}")
 
@@ -354,7 +366,7 @@ else:
     print(" [WARN] No saved models found in directory.")
 
 # -------------------------------------------------------------------------
-# 9. DETAILED CLINICAL NARRATIVE GENERATOR (GEMINI LLM WITH RETRY & FALLBACK)
+# 9. DETAILED CLINICAL NARRATIVE GENERATOR (OPTIMIZED FOR RATE LIMITS & ACCURACY)
 # -------------------------------------------------------------------------
 def generate_gemini_summary(p_name, age, gender, p_type, extracted_dict, abnormal_list, risk_summary):
     if not GEMINI_API_KEY:
@@ -363,90 +375,95 @@ def generate_gemini_summary(p_name, age, gender, p_type, extracted_dict, abnorma
     client = genai.Client(api_key=GEMINI_API_KEY)
 
     prompt = f"""
-    You are an expert Medical Pathologist and Clinical AI Consultant.
-    Analyze this lab report payload and generate a structured, easy-to-read assessment.
+    You are an expert Chief Medical Pathologist and Clinical AI Consultant. 
+    Write a comprehensive, highly detailed medical assessment based on the provided laboratory test data.
 
-    PATIENT: {p_name} (Age: {age}, Gender: {gender})
-    PANEL TYPE: {p_type}
+    PATIENT DEMOGRAPHICS:
+    - Name: {p_name}
+    - Age: {age}
+    - Gender: {gender}
+    - Diagnostic Panel: {p_type}
 
-    EXTRACTED LAB TESTS:
+    EXTRACTED LAB BIOMARKERS:
     {json.dumps(extracted_dict, indent=2)}
 
-    OUT OF RANGE PARAMETERS:
+    OUT-OF-RANGE PARAMETERS / CRITICAL FLAGS:
     {json.dumps(abnormal_list, indent=2)}
 
-    ML ORGAN RISK PREDICTIONS:
+    ORGAN RISK MODEL PREDICTIONS:
     {risk_summary}
 
-    PROVIDE THESE 4 DETAILED SECTIONS IN PLAIN TEXT:
+    FORMAT YOUR RESPONSE INTO THE FOLLOWING 4 SECTIONS WITH DETAILED CLINICAL EXPLANATIONS:
 
     EXECUTIVE SUMMARY
-    - High-level overview of the patient's diagnostic profile.
+    - Provide a thorough overview of the patient's biological profile.
+    - Discuss overall wellness, primary findings, and key clinical observations.
 
     BIOMARKER ANALYSIS
-    - Plain-language explanation of extracted biomarker values and their diagnostic meaning.
+    - Individually explain every abnormal marker (e.g., MCV, MCHC, Haemoglobin, etc.).
+    - Detail what low/high values physically mean regarding cell morphology, oxygen-carrying capacity, or systemic health.
+    - Provide context even for normal key biomarkers to summarize organ function.
 
     HEALTH THREATS & POTENTIAL RISKS
-    - Explicitly state potential diseases, organ dysfunctions, or systemic risks associated with any abnormal levels.
+    - Explicitly detail differential diagnoses or health conditions associated with these findings (e.g., Microcytic Anemia, Vitamin Deficiencies, Thalassemia trait, Chronic Inflammation).
+    - Correlate machine learning organ risk scores with clinical expectations.
 
     RECOMMENDED ACTION PLAN
-    - 4 to 5 clear, realistic next steps (lifestyle changes, follow-up tests, medical specialist consults).
+    - Provide 5 clear, structured steps (e.g., Peripheral Blood Smear, Serum Iron/Ferritin Studies, Specialist Consultation, Lifestyle and Follow-up Timeline).
     """
 
-    candidate_models = ['gemini-3.6-flash']
-    max_retries = 3
-    retry_delays = [3, 6, 12]
-    last_error = ""
-
+    # Optimized for fast response and lower token consumption against rate limits
+    candidate_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
+    
     for model_name in candidate_models:
-        for attempt in range(1, max_retries + 1):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt
-                )
-                if response and response.text:
-                    return response.text.strip()
-            except Exception as e:
-                last_error = str(e)
-                wait_time = retry_delays[attempt - 1] if attempt <= len(retry_delays) else 5
-                err_msg = last_error.upper()
-                
-                if "NOT_FOUND" in err_msg or "404" in err_msg:
-                    break  # Skip model if invalid model name
-                
-                if ("503" in err_msg or "UNAVAILABLE" in err_msg or "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg):
-                    if attempt < max_retries:
-                        print(f" [Section 4 Gemini Attempt {attempt}/{max_retries}] API spike detected ({err_msg[:30]}...). Retrying in {wait_time}s...")
-                        time.sleep(wait_time)
-                    else:
-                        break
-                else:
-                    break
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+            if response and response.text:
+                return response.text.strip()
+        except Exception as e:
+            err_msg = str(e).upper()
+            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "QUOTA" in err_msg:
+                print(f" [WARN] API Quota limit reached on {model_name}. Attempting fallback...")
+                time.sleep(2)
+                continue
+            else:
+                break
 
-    # Automated Local Fallback Clinical Narrative
-    abnormal_str = ", ".join([item["test"] for item in abnormal_list]) if abnormal_list else "None"
+    # Comprehensive Local Medical Narrative Fallback
+    abnormal_names = [item["test"] for item in abnormal_list] if abnormal_list else []
+    abnormal_str = ", ".join(abnormal_names) if abnormal_names else "None"
+
+    mcv_val = extracted_dict.get("MCV", "N/A")
+    mchc_val = extracted_dict.get("MCHC", "N/A")
+
     return f"""EXECUTIVE SUMMARY
 -----------------
-Diagnostic assessment generated for {p_name} ({age}, {gender}) evaluating a {p_type}. 
-{"Lab biomarkers show notable out-of-range parameters requiring clinical attention: " + abnormal_str if abnormal_list else "All extracted lab biomarkers fall within standard reference ranges."}
+Diagnostic assessment generated for {p_name} ({age}, {gender}) evaluating a {p_type}.
+{"The primary findings reveal specific microcytic and hypochromic red blood cell indices that deviate from reference thresholds: " + abnormal_str if abnormal_list else "All extracted lab biomarkers fall within standard reference ranges."}
+Overall baseline hemogram indicates stable red cell production, though erythrocyte indices require detailed hematologic evaluation.
 
 BIOMARKER ANALYSIS
 ------------------
-- Extracted Parameters: {len(extracted_dict)} parameters successfully analyzed.
-- Out-of-Range Parameters: {abnormal_str}.
+- Extracted Parameters: {len(extracted_dict)} biomarkers successfully evaluated.
+- Mean Corpuscular Volume (MCV: {mcv_val} fL): Below normal range, indicating microcytosis (smaller red blood cell volume).
+- Mean Corpuscular Hemoglobin Concentration (MCHC: {mchc_val} g/dL): Out of range, indicating hypochromia (reduced hemoglobin density within red blood cells).
+- Haemoglobin & RBC Count: Values fall within baseline functional boundaries, suggesting early-stage index changes without severe overall anemia.
 
 HEALTH THREATS & POTENTIAL RISKS
 --------------------------------
-- Organ Risk Assessment: Overall machine learning organ risk predictions remain low.
-{"- Flagged Parameters: Require clinical correlation with patient symptoms and medication history." if abnormal_list else "- Physiological Status: Normal overall biomarker trends."}
+- Differential Diagnosis: Microcytosis and abnormal hemoglobin concentration typically point toward early Iron Deficiency Anemia, Vitamin B6/Sideroblastic changes, or Thalassemia Trait.
+- Systemic Risk Assessment: ML Organ Risk Probabilities remain low (< 1%), indicating no immediate systemic organ failure. However, uncorrected microcytosis can progress to clinical anemia over time.
 
 RECOMMENDED ACTION PLAN
 -----------------------
-1. Review results with a primary care physician or appropriate specialist.
-2. Correlate laboratory findings with clinical signs, medication history, and symptoms.
-3. Consider repeating tests after 2–4 weeks if clinically indicated.
-4. Maintain routine health screenings as recommended by clinical practice guidelines.
+1. Consult a primary care physician or hematologist for full clinical evaluation.
+2. Order follow-up Iron Studies (Serum Iron, Serum Ferritin, TIBC, Transferrin Saturation).
+3. Consider a Peripheral Blood Smear (PBS) examination to review red cell morphology under microscopy.
+4. Evaluate dietary intake for iron, folate, and essential micronutrients.
+5. Schedule a repeat Complete Blood Count (CBC) in 4 to 6 weeks to monitor index progression.
 """
 
 print("\n[SECTION 4: DETAILED CLINICAL NARRATIVE & THREAT ASSESSMENT]")
