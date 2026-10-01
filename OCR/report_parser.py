@@ -166,7 +166,7 @@ def parse_report_with_gemini(raw_text):
     {raw_text[:4000]}
     """
 
-    candidate_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    candidate_models = ["gemini-3.6-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
 
     for model_name in candidate_models:
         try:

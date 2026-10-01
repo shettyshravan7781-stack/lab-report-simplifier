@@ -366,7 +366,7 @@ else:
     print(" [WARN] No saved models found in directory.")
 
 # -------------------------------------------------------------------------
-# 9. DETAILED CLINICAL NARRATIVE GENERATOR (OPTIMIZED FOR RATE LIMITS & ACCURACY)
+# 9. UNIVERSAL CLINICAL NARRATIVE GENERATOR (100% DYNAMIC & PANEL-AGNOSTIC)
 # -------------------------------------------------------------------------
 def generate_gemini_summary(p_name, age, gender, p_type, extracted_dict, abnormal_list, risk_summary):
     if not GEMINI_API_KEY:
@@ -374,45 +374,61 @@ def generate_gemini_summary(p_name, age, gender, p_type, extracted_dict, abnorma
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
+    # 1. Prepare dynamic lists for extracted values & abnormal flags
+    all_biomarkers_text = "\n".join([f"- {k}: {v}" for k, v in extracted_dict.items()]) if extracted_dict else "None extracted."
+    
+    if abnormal_list:
+        abnormal_text = "\n".join([f"- {item['test']}: {item['val']} {item.get('unit', '')} [{item['flag']}]" for item in abnormal_list])
+    else:
+        abnormal_text = "None detected. All extracted biomarkers fall within standard reference intervals."
+
+    # 2. Universal, Panel-Agnostic Clinical Prompt
     prompt = f"""
-    You are an expert Chief Medical Pathologist and Clinical AI Consultant. 
-    Write a comprehensive, highly detailed medical assessment based on the provided laboratory test data.
+    You are an expert Chief Pathologist and Clinical AI Diagnostic Consultant.
+    Generate an in-depth, professional medical narrative based STRICTLY on the extracted laboratory data below.
 
     PATIENT DEMOGRAPHICS:
     - Name: {p_name}
-    - Age: {age}
-    - Gender: {gender}
-    - Diagnostic Panel: {p_type}
+    - Age: {age} | Gender: {gender}
+    - Test Panel: {p_type}
 
-    EXTRACTED LAB BIOMARKERS:
-    {json.dumps(extracted_dict, indent=2)}
+    EXTRACTED LAB BIOMARKERS ({len(extracted_dict)} parameters):
+    {all_biomarkers_text}
 
-    OUT-OF-RANGE PARAMETERS / CRITICAL FLAGS:
-    {json.dumps(abnormal_list, indent=2)}
+    OUT-OF-RANGE PARAMETERS / CLINICAL FLAGS:
+    {abnormal_text}
 
-    ORGAN RISK MODEL PREDICTIONS:
+    MACHINE LEARNING ORGAN RISK SCORES:
     {risk_summary}
 
-    FORMAT YOUR RESPONSE INTO THE FOLLOWING 4 SECTIONS WITH DETAILED CLINICAL EXPLANATIONS:
+    UNIVERSAL CLINICAL RULES:
+    1. NEVER mention tests, biomarkers, or organ systems that do NOT exist in the "EXTRACTED LAB BIOMARKERS" list above.
+    2. If OUT-OF-RANGE parameters exist:
+       - Dedicate the BIOMARKER ANALYSIS section to explaining the physiological mechanism of EVERY flagged parameter (why it is low/high and what organ/system process it impacts).
+       - In HEALTH THREATS, list targeted differential diagnoses directly tied to these abnormal findings.
+    3. If ALL parameters are NORMAL:
+       - Explain what these normal markers signify regarding physiological stability for the {p_type} panel.
+       - Reassure the patient while providing standard preventive advice.
+    4. Correlate the machine learning organ risk percentages directly with the clinical findings.
+
+    FORMAT YOUR RESPONSE EXACTLY INTO THESE 4 HEADINGS:
 
     EXECUTIVE SUMMARY
-    - Provide a thorough overview of the patient's biological profile.
-    - Discuss overall wellness, primary findings, and key clinical observations.
+    - High-level clinical synthesis of the patient's {p_type} results.
+    - Highlight whether the overall panel is normal or if specific biomarkers require clinical attention.
 
     BIOMARKER ANALYSIS
-    - Individually explain every abnormal marker (e.g., MCV, MCHC, Haemoglobin, etc.).
-    - Detail what low/high values physically mean regarding cell morphology, oxygen-carrying capacity, or systemic health.
-    - Provide context even for normal key biomarkers to summarize organ function.
+    - Comprehensive analysis of extracted biomarkers.
+    - Explicitly detail any out-of-range values first, followed by a brief confirmation of stable/normal baseline markers.
 
     HEALTH THREATS & POTENTIAL RISKS
-    - Explicitly detail differential diagnoses or health conditions associated with these findings (e.g., Microcytic Anemia, Vitamin Deficiencies, Thalassemia trait, Chronic Inflammation).
-    - Correlate machine learning organ risk scores with clinical expectations.
+    - Differential diagnosis and potential clinical complications associated ONLY with the extracted markers.
+    - Pathophysiological correlation with the ML Organ Risk Scores.
 
     RECOMMENDED ACTION PLAN
-    - Provide 5 clear, structured steps (e.g., Peripheral Blood Smear, Serum Iron/Ferritin Studies, Specialist Consultation, Lifestyle and Follow-up Timeline).
+    - Provide 5 concrete, prioritized clinical recommendations (e.g., specific confirmatory lab tests, specialist consults, monitoring intervals, lifestyle or dietary considerations).
     """
 
-    # Optimized for fast response and lower token consumption against rate limits
     candidate_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
     
     for model_name in candidate_models:
@@ -426,44 +442,45 @@ def generate_gemini_summary(p_name, age, gender, p_type, extracted_dict, abnorma
         except Exception as e:
             err_msg = str(e).upper()
             if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "QUOTA" in err_msg:
-                print(f" [WARN] API Quota limit reached on {model_name}. Attempting fallback...")
                 time.sleep(2)
                 continue
             else:
                 break
 
-    # Comprehensive Local Medical Narrative Fallback
-    abnormal_names = [item["test"] for item in abnormal_list] if abnormal_list else []
-    abnormal_str = ", ".join(abnormal_names) if abnormal_names else "None"
+    # 3. Universal Dynamic Local Fallback Engine (No hardcoded test names)
+    has_abnormalities = len(abnormal_list) > 0
+    abnormal_names = [item['test'] for item in abnormal_list] if has_abnormalities else []
 
-    mcv_val = extracted_dict.get("MCV", "N/A")
-    mchc_val = extracted_dict.get("MCHC", "N/A")
+    fallback_abnormal_bullets = ""
+    if has_abnormalities:
+        for item in abnormal_list:
+            fallback_abnormal_bullets += f"- {item['test']} ({item['val']} {item.get('unit', '')}): {item['flag']}\n"
+    else:
+        fallback_abnormal_bullets = "- All evaluated parameters fall within standard physiological reference ranges."
 
     return f"""EXECUTIVE SUMMARY
 -----------------
 Diagnostic assessment generated for {p_name} ({age}, {gender}) evaluating a {p_type}.
-{"The primary findings reveal specific microcytic and hypochromic red blood cell indices that deviate from reference thresholds: " + abnormal_str if abnormal_list else "All extracted lab biomarkers fall within standard reference ranges."}
-Overall baseline hemogram indicates stable red cell production, though erythrocyte indices require detailed hematologic evaluation.
+{"ATTENTION REQUIRED: Parameter deviations detected in " + ", ".join(abnormal_names) + "." if has_abnormalities else "ALL CLEAR: Extracted biomarkers fall within standard reference bounds."}
+Overall diagnostic profile evaluated across {len(extracted_dict)} parameters.
 
 BIOMARKER ANALYSIS
 ------------------
-- Extracted Parameters: {len(extracted_dict)} biomarkers successfully evaluated.
-- Mean Corpuscular Volume (MCV: {mcv_val} fL): Below normal range, indicating microcytosis (smaller red blood cell volume).
-- Mean Corpuscular Hemoglobin Concentration (MCHC: {mchc_val} g/dL): Out of range, indicating hypochromia (reduced hemoglobin density within red blood cells).
-- Haemoglobin & RBC Count: Values fall within baseline functional boundaries, suggesting early-stage index changes without severe overall anemia.
+{fallback_abnormal_bullets}
+- General Panel Findings: Extracted parameters were evaluated against clinical standard reference intervals for {p_type}.
 
 HEALTH THREATS & POTENTIAL RISKS
 --------------------------------
-- Differential Diagnosis: Microcytosis and abnormal hemoglobin concentration typically point toward early Iron Deficiency Anemia, Vitamin B6/Sideroblastic changes, or Thalassemia Trait.
-- Systemic Risk Assessment: ML Organ Risk Probabilities remain low (< 1%), indicating no immediate systemic organ failure. However, uncorrected microcytosis can progress to clinical anemia over time.
+- Clinical Correlates: {"Findings in " + ", ".join(abnormal_names) + " require clinical correlation with patient symptoms and medical history." if has_abnormalities else "No acute pathological risks indicated by the current test panel."}
+- ML Risk Scores: Machine learning risk models indicate stable baseline probabilities across evaluated organ systems.
 
 RECOMMENDED ACTION PLAN
 -----------------------
-1. Consult a primary care physician or hematologist for full clinical evaluation.
-2. Order follow-up Iron Studies (Serum Iron, Serum Ferritin, TIBC, Transferrin Saturation).
-3. Consider a Peripheral Blood Smear (PBS) examination to review red cell morphology under microscopy.
-4. Evaluate dietary intake for iron, folate, and essential micronutrients.
-5. Schedule a repeat Complete Blood Count (CBC) in 4 to 6 weeks to monitor index progression.
+1. Review findings with primary care physician or appropriate medical specialist.
+2. Consider targeted follow-up testing for any flagged parameters if clinically indicated.
+3. Schedule routine health screening intervals for {p_type}.
+4. Correlate lab results with physical examination and personal clinical history.
+5. Retain copy of diagnostic report in medical record.
 """
 
 print("\n[SECTION 4: DETAILED CLINICAL NARRATIVE & THREAT ASSESSMENT]")

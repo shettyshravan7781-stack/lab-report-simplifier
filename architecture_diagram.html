@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Clinical Diagnostic Pipeline — System Architecture</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-main: #f8fafc;
+      --accent-blue: #38bdf8;
+      --accent-green: #4ade80;
+      --accent-amber: #fbbf24;
+      --accent-purple: #c084fc;
+    }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      margin: 0;
+      padding: 20px;
+    }
+    header {
+      text-align: center;
+      padding: 20px;
+      border-bottom: 2px solid #334155;
+      margin-bottom: 30px;
+    }
+    h1 {
+      color: var(--accent-blue);
+      margin: 0 0 10px 0;
+    }
+    p.subtitle {
+      color: #94a3b8;
+      font-size: 1.1em;
+      margin: 0;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .card {
+      background-color: var(--card-bg);
+      border-radius: 12px;
+      padding: 25px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+      margin-bottom: 30px;
+      border: 1px solid #334155;
+    }
+    .card h2 {
+      color: var(--accent-green);
+      margin-top: 0;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 10px;
+    }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+      background-color: #020617;
+      padding: 20px;
+      border-radius: 8px;
+    }
+    .tech-stack {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+    .tech-item {
+      background: #0f172a;
+      padding: 15px;
+      border-radius: 8px;
+      border-left: 4px solid var(--accent-blue);
+    }
+    .tech-item strong {
+      color: var(--accent-amber);
+      display: block;
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>AI Clinical Diagnostic Pipeline</h1>
+    <p class="subtitle">End-to-End Multimodal Medical OCR, XGBoost Risk Inference & Explainable AI Architecture</p>
+  </header>
+
+  <div class="container">
+
+    <!-- RUNTIME ARCHITECTURE DIAGRAM -->
+    <div class="card">
+      <h2>1. System Runtime & Dataflow Architecture</h2>
+      <div class="mermaid">
+        flowchart TD
+          A["PDF Medical Lab Report"] --> B["PyMuPDF Text Extraction"]
+          B --> C{"Gemini Flash Vision OCR"}
+          
+          C -->|"Success"| D["Structured Medical JSON"]
+          C -->|"Fallback"| E["Regex Fallback Engine"]
+          E --> D
+
+          D --> F["Biomarker Reference Range Check"]
+          F --> G["Fuzzy Feature Mapping Engine"]
+
+          G --> H["XGBoost Multi-Target Classifiers"]
+          
+          H --> I["SHAP Explainable AI Engine"]
+
+          H --> J["Gemini Clinical Summary Generator"]
+          I --> J
+          F --> J
+
+          J --> K["Integrated Clinical Audit Report"]
+      </div>
+    </div>
+
+    <!-- PIPELINE SEQUENCE DIAGRAM -->
+    <div class="card">
+      <h2>2. Execution Sequence</h2>
+      <div class="mermaid">
+        sequenceDiagram
+          autonumber
+          actor User
+          participant Pipeline as load_models.py
+          participant Parser as report_parser.py
+          participant Gemini as Gemini Flash API
+          participant XGBoost as XGBoost ML Models
+          participant SHAP as SHAP XAI Engine
+
+          User->>Pipeline: Run python load_models.py
+          Pipeline->>Pipeline: Flush stale OCR cache
+          Pipeline->>Parser: Execute subprocess report_parser.py
+          Parser->>Gemini: Extract JSON via Multimodal OCR Prompt
+          
+          alt API Success
+            Gemini-->>Parser: Valid Structured JSON
+          else Fallback
+            Parser-->>Parser: Dynamic Regex Fallback Parser
+          end
+
+          Parser-->>Pipeline: Write report_output.json
+          Pipeline->>Pipeline: Ingest metadata and biomarker values
+          Pipeline->>Pipeline: Flag Out-of-Range Parameters
+          Pipeline->>XGBoost: Predict organ risk probabilities
+          XGBoost-->>SHAP: Generate Feature Attribution Plots
+          Pipeline->>Gemini: Send payload for 4-section assessment
+          Gemini-->>Pipeline: Structured Pathologist Narrative
+          Pipeline-->>User: Output Integrated Audit Report
+      </div>
+    </div>
+
+    <!-- TECH STACK SUMMARY -->
+    <div class="card">
+      <h2>3. Core Pipeline Components</h2>
+      <div class="tech-stack">
+        <div class="tech-item">
+          <strong>Multimodal Vision OCR</strong>
+          Gemini Flash Vision converts raw lab report PDFs directly into structured JSON dictionaries.
+        </div>
+        <div class="tech-item">
+          <strong>Tabular ML Classifier</strong>
+          XGBoost ensemble models trained across 10 clinical panels to predict organ-specific risk probabilities.
+        </div>
+        <div class="tech-item">
+          <strong>Explainable AI (XAI)</strong>
+          SHAP Shapley Additive Explanations provide individual biomarker attribution scores for complete model interpretability.
+        </div>
+        <div class="tech-item">
+          <strong>Pathology Narrative LLM</strong>
+          Gemini LLM prompt chain generates a structured 4-section clinical report including an Action Plan and Risk Assessment.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      securityLevel: 'loose'
+    });
+  </script>
+</body>
+</html>
