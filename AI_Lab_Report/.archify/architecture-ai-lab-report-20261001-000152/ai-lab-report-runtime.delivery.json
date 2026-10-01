@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "0efb320d-b808-4e0d-8ec1-44db5e130e37",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "C:\\AI_Lab_Report\\.archify\\architecture-ai-lab-report-20261001-000152\\candidate.json",
+  "output": "C:\\AI_Lab_Report\\.archify\\architecture-ai-lab-report-20261001-000152\\ai-lab-report-runtime.html",
+  "specification": {
+    "sha256": "cac47815204ade9c66ce28de03733f223b82b4fdf1380280f92b2ad055a827ae",
+    "bytes": 7053
+  },
+  "artifact": {
+    "sha256": "0d1108e8ba40d9f76a8d692e19cf97f800b7d1f27360d6658c979567342f59d5",
+    "bytes": 770705
+  }
+}

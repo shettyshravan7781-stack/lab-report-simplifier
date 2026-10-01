@@ -1,27 +1,75 @@
 {
   "patient": {
-    "name": "Yashvi M. Patel",
-    "age": "21 Years",
-    "gender": "Female"
+    "name": "Demo Patient Name",
+    "age": "66",
+    "gender": "Male"
   },
   "tests": [
     {
-      "test": "T3, TOTAL",
-      "value": "150.00",
-      "unit": "ng/dL",
-      "reference": "80.00 - 200.00"
+      "test": "Blood Urea",
+      "value": "32",
+      "unit": "mg/dL",
+      "reference": "19 - 43 Urease, Colorimetric"
     },
     {
-      "test": "T4, TOTAL",
-      "value": "10.50",
-      "unit": "mcg/dL",
-      "reference": "4.50 - 12.50"
+      "test": "Blood Urea Nitrogen",
+      "value": "14.95",
+      "unit": "mg/dL",
+      "reference": "9-20 Calculated"
     },
     {
-      "test": "TSH",
-      "value": "2.50",
-      "unit": "mU/L",
-      "reference": "0.40 - 4.00"
+      "test": "Creatinine",
+      "value": "0.88",
+      "unit": "mg/dL",
+      "reference": "0.6-1.25 Enzymatic"
+    },
+    {
+      "test": "Estimated GFR",
+      "value": "94.80",
+      "unit": "N/A",
+      "reference": "mL/min/1.73m2 Calculated By CKD-EPI(2021)"
+    },
+    {
+      "test": "Uric Acid",
+      "value": "6.2",
+      "unit": "mg/dL",
+      "reference": "3.5 - 8.5 Uricase , Colorimetric"
+    },
+    {
+      "test": "Calcium",
+      "value": "8.6",
+      "unit": "mg/dL",
+      "reference": "8.4 - 10.2 Arsenazo III"
+    },
+    {
+      "test": "BUN/Creatinine Ratio",
+      "value": "16.99",
+      "unit": "N/A",
+      "reference": "Ratio Calculated"
+    },
+    {
+      "test": "Urea/Creatinine Ratio",
+      "value": "36.36",
+      "unit": "N/A",
+      "reference": "Ratio Calculated"
+    },
+    {
+      "test": "Sodium",
+      "value": "132",
+      "unit": "N/A",
+      "reference": "mmol/L 137-145 ISE Direct"
+    },
+    {
+      "test": "Potassium",
+      "value": "4.4",
+      "unit": "N/A",
+      "reference": "mmol/L 3.5 - 5.1 ISE Direct"
+    },
+    {
+      "test": "Chloride",
+      "value": "100",
+      "unit": "N/A",
+      "reference": "mmol/L 98 - 107 ISE Direct"
     }
   ]
 }

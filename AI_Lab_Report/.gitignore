@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+notebooks/
+Dataset/
+input/*.pdf
+OCR/output/
+output/Master_Hospital_Dataset.csv
+.env

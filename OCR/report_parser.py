@@ -16,7 +16,8 @@ logging.getLogger("google.genai").setLevel(logging.ERROR)
 # Load environment variables from .env
 load_dotenv()
 
-BASE_DIR = r"C:\AI_Lab_Report"
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INPUT_DIR = os.path.join(BASE_DIR, "input")
 OUTPUT_DIR = os.path.join(BASE_DIR, "OCR", "output")
 OUTPUT_JSON = os.path.join(OUTPUT_DIR, "report_output.json")
@@ -166,7 +167,7 @@ def parse_report_with_gemini(raw_text):
     {raw_text[:4000]}
     """
 
-    candidate_models = ["gemini-3.6-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
     for model_name in candidate_models:
         try:

@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AI Lab Report Runtime Architecture",
+    "output": ".archify/architecture-ai-lab-report-20261001-000152/ai-lab-report-runtime.html",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/shettyshravan7781-stack/lab-report-simplifier.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "cbf5bc0f829e861c591f237bd9951417854cece0"
+    }
+  },
+  "components": [
+    {
+      "id": "report-user",
+      "type": "external",
+      "label": "Report Submitter",
+      "sublabel": "Uploads a lab-report PDF",
+      "pos": [40, 300],
+      "size": [145, 68],
+      "sources": [{ "path": "app.py", "line": 70, "end_line": 78 }]
+    },
+    {
+      "id": "fastapi-api",
+      "type": "backend",
+      "label": "FastAPI API",
+      "sublabel": "POST /analyze/; stores PDF in input/",
+      "pos": [260, 290],
+      "size": [185, 88],
+      "sources": [{ "path": "app.py", "line": 70, "end_line": 115 }, { "path": "app.py", "line": 124, "end_line": 139 }]
+    },
+    {
+      "id": "pipeline-runner",
+      "type": "backend",
+      "label": "Pipeline Runner",
+      "sublabel": "load_models.py; runs OCR subprocess",
+      "pos": [520, 290],
+      "size": [195, 88],
+      "sources": [{ "path": "load_models.py", "line": 42, "end_line": 46 }, { "path": "load_models.py", "line": 94, "end_line": 124 }]
+    },
+    {
+      "id": "ocr-parser",
+      "type": "backend",
+      "label": "OCR Parser",
+      "sublabel": "PyMuPDF; Gemini JSON or regex fallback",
+      "pos": [795, 290],
+      "size": [205, 88],
+      "sources": [{ "path": "OCR/report_parser.py", "line": 29, "end_line": 55 }, { "path": "OCR/report_parser.py", "line": 201, "end_line": 223 }]
+    },
+    {
+      "id": "gemini-ocr",
+      "type": "external",
+      "label": "Gemini OCR Extraction",
+      "sublabel": "Structured lab JSON when configured",
+      "pos": [785, 85],
+      "size": [205, 82],
+      "sources": [{ "path": "OCR/report_parser.py", "line": 146, "end_line": 180 }]
+    },
+    {
+      "id": "ocr-json",
+      "type": "database",
+      "label": "OCR JSON Output",
+      "sublabel": "OCR/output/report_output.json",
+      "pos": [795, 530],
+      "size": [205, 75],
+      "sources": [{ "path": "OCR/report_parser.py", "line": 22, "end_line": 25 }, { "path": "OCR/report_parser.py", "line": 213, "end_line": 223 }, { "path": "load_models.py", "line": 112, "end_line": 124 }]
+    },
+    {
+      "id": "xgboost-inference",
+      "type": "backend",
+      "label": "XGBoost Risk Inference",
+      "sublabel": "Feature mapping; predict_proba risk scores",
+      "pos": [1070, 290],
+      "size": [215, 88],
+      "sources": [{ "path": "load_models.py", "line": 329, "end_line": 366 }]
+    },
+    {
+      "id": "saved-models",
+      "type": "database",
+      "label": "Saved XGBoost Models",
+      "sublabel": "output/saved_models/*.pkl",
+      "pos": [1070, 85],
+      "size": [200, 75],
+      "sources": [{ "path": "load_models.py", "line": 30, "end_line": 46 }, { "path": "load_models.py", "line": 329, "end_line": 338 }]
+    },
+    {
+      "id": "shap-explanation",
+      "type": "backend",
+      "label": "SHAP Explanation",
+      "sublabel": "Documented; not wired into request runtime",
+      "tag": "INTEGRATION GAP",
+      "pos": [1070, 540],
+      "size": [215, 88],
+      "sources": [{ "path": "README.md", "line": 9, "end_line": 18 }, { "path": "load_models.py", "line": 42, "end_line": 46 }]
+    },
+    {
+      "id": "gemini-summary",
+      "type": "external",
+      "label": "Gemini Clinical Summary",
+      "sublabel": "Narrative API; local fallback if unavailable",
+      "pos": [1388, 290],
+      "size": [225, 88],
+      "sources": [{ "path": "load_models.py", "line": 371, "end_line": 435 }, { "path": "load_models.py", "line": 472, "end_line": 473 }]
+    }
+  ],
+  "connections": [
+    {
+      "id": "upload-to-api",
+      "from": "report-user",
+      "to": "fastapi-api",
+      "label": "PDF upload",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-to-runner",
+      "from": "fastapi-api",
+      "to": "pipeline-runner",
+      "label": "spawn"
+    },
+    {
+      "id": "runner-to-parser",
+      "from": "pipeline-runner",
+      "to": "ocr-parser",
+      "label": "run OCR"
+    },
+    {
+      "id": "parser-to-gemini-ocr",
+      "from": "ocr-parser",
+      "to": "gemini-ocr",
+      "label": "if API key is set",
+      "variant": "dashed"
+    },
+    {
+      "id": "gemini-ocr-to-parser",
+      "from": "gemini-ocr",
+      "to": "ocr-parser",
+      "label": "structured tests on success",
+      "variant": "dashed"
+    },
+    {
+      "id": "parser-to-json",
+      "from": "ocr-parser",
+      "to": "ocr-json",
+      "label": "write parsed report"
+    },
+    {
+      "id": "json-to-inference",
+      "from": "ocr-json",
+      "to": "xgboost-inference",
+      "label": "read biomarkers"
+    },
+    {
+      "id": "runner-to-inference",
+      "from": "pipeline-runner",
+      "to": "xgboost-inference",
+      "label": ""
+    },
+    {
+      "id": "models-to-inference",
+      "from": "saved-models",
+      "to": "xgboost-inference",
+      "label": "load .pkl models"
+    },
+    {
+      "id": "inference-to-shap-gap",
+      "from": "xgboost-inference",
+      "to": "shap-explanation",
+      "label": "not runtime-wired",
+      "variant": "dashed"
+    },
+    {
+      "id": "shap-to-summary-gap",
+      "from": "shap-explanation",
+      "to": "gemini-summary",
+      "label": "not passed",
+      "variant": "dashed"
+    },
+    {
+      "id": "inference-to-summary",
+      "from": "xgboost-inference",
+      "to": "gemini-summary",
+      "label": "risk + labs",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Runtime Handoffs",
+      "items": [
+        "FastAPI writes the uploaded PDF under input/ and launches load_models.py.",
+        "The parser writes report_output.json; load_models.py reads it, scores risks, then prints the narrative.",
+        "The API response contains cleaned OCR data and captured terminal logs, including the summary."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "SHAP Integration Gap",
+      "items": [
+        "README.md documents SHAP and SHAP plot outputs, but the pinned request path does not execute SHAP or pass explanations to Gemini.",
+        "Dashed links mark the requested SHAP stage as not wired; the live path goes directly from XGBoost risk scores to Gemini."
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Evidence Snapshot",
+      "items": [
+        "Source citations are pinned to commit cbf5bc0f829e861c591f237bd9951417854cece0.",
+        "At authoring start, staged worktree paths were OCR/report_parser.py, load_models.py, and architecture_diagram.html."
+      ]
+    }
+  ]
+}

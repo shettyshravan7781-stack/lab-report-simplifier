@@ -206,12 +206,9 @@ def is_out_of_range(val, ref_range):
     except (ValueError, TypeError):
         return False
 
-    # Ignore non-numeric methodology metadata strings (like CKD-EPI or ISE Direct)
-    if "ckd-epi" in ref_str or "calculated by" in ref_str:
-        return False
-
-    # Must contain numeric range delimiters or inequality symbols
-    if not ("-" in ref_str or "<" in ref_str or ">" in ref_str):
+    # Ignore qualitative strings that don't contain numeric boundaries
+    numbers = re.findall(r"[\d]+\.?[\d]*", ref_str)
+    if not numbers or len(numbers) < 2 and not ("<" in ref_str or ">" in ref_str):
         return False
 
     if "<" in ref_str:
@@ -221,7 +218,6 @@ def is_out_of_range(val, ref_range):
         lim = extract_numeric(ref_str)
         return num_val <= lim if lim is not None else False
 
-    numbers = re.findall(r"[\d]+\.?[\d]*", ref_str)
     if len(numbers) >= 2:
         low, high = float(numbers[0]), float(numbers[1])
         if low > high:
@@ -391,6 +387,7 @@ def generate_gemini_summary(p_name, age, gender, p_type, extracted_dict, abnorma
     if not GEMINI_API_KEY:
         return "Clinical summary generation skipped: GEMINI_API_KEY is not set."
 
+    # Format extracted biomarkers into clean text
     all_biomarkers_lines = [f"- {k}: {v}" for k, v in extracted_dict.items()]
     all_biomarkers_text = "\n".join(all_biomarkers_lines) if all_biomarkers_lines else "None extracted."
     
@@ -420,50 +417,46 @@ def generate_gemini_summary(p_name, age, gender, p_type, extracted_dict, abnorma
     STRICT GUIDELINES:
     1. NEVER mention biomarkers or medical conditions outside the provided EXTRACTED LAB BIOMARKERS.
     2. Write deep, informative paragraphs (3–5 sentences per section). Do not keep them brief or generic.
-    3. For NORMAL results: Explain the biological purpose of these specific markers and confirm physiological homeostasis.
-    4. For ABNORMAL results: Explain the pathophysiological mechanism behind each out-of-range value, potential root causes, and clinical implications.
+    3. For NORMAL results: Explain the biological purpose of these specific markers (e.g., TSH regulating metabolic rate, PT/APTT evaluating coagulation, Creatinine/eGFR assessing renal filtration) and confirm physiological homeostasis.
+    4. For ABNORMAL results: Explain the pathophysiological mechanism behind each out-of-range value (e.g., mild hyponatremia for low Sodium), potential root causes, and clinical implications.
     5. Contextualize the ML Organ Risk Scores against the laboratory values.
 
     FORMAT YOUR RESPONSE EXACTLY INTO THESE 4 HEADINGS:
 
     EXECUTIVE SUMMARY
     - Provide a detailed overview of the patient's diagnostic profile for {p_type}.
+    - Highlight key findings, overall baseline stability, or primary areas requiring clinical attention.
 
     BIOMARKER ANALYSIS
-    - Individually discuss the extracted markers.
+    - Individually discuss the extracted markers. 
+    - Detail what these exact values mean for organ system function.
 
     HEALTH THREATS & POTENTIAL RISKS
     - Detail potential clinical complications or differential diagnoses related ONLY to {p_type}.
+    - Correlate the Machine Learning Organ Risk Scores with the laboratory findings.
 
     RECOMMENDED ACTION PLAN
-    - Provide 5 concrete, prioritized clinical steps.
+    - Provide 5 concrete, prioritized clinical steps (e.g., specific follow-up panels, specialist consults, re-testing intervals, lifestyle/monitoring advice).
     """
 
-    # Official, stable Google GenAI model identifiers
-    candidate_models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
-
-    for model_name in candidate_models:
-        try:
-            from google import genai
-            from google.genai import types
-            
-            client = genai.Client(api_key=GEMINI_API_KEY)
-            
-            res = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    tools=[]  # Disables tools to stop AFC warnings and ensure text output
-                )
+    try:
+        from google.genai import types
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        
+        # Explicitly disable tools to stop AFC warnings and guarantee text delivery
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[]
             )
-            if res and res.text:
-                return res.text.strip()
-        except Exception:
-            continue
+        )
+        if response and response.text:
+            return response.text.strip()
+    except Exception as e:
+        print(f" [WARN] Gemini API call skipped ({e}). Executing dynamic fallback...")
 
-    print(" [WARN] All Gemini API models skipped or unreachable. Executing dynamic fallback...")
-
-    # Dynamic Rich Local Fallback Engine
+    # Dynamic Rich Local Fallback Engine (Detailed Multi-Line Summary)
     has_abnormalities = len(abnormal_list) > 0
     abnormal_names = [item['test'] for item in abnormal_list] if has_abnormalities else []
 
