@@ -45,36 +45,45 @@ async def analyze_report(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF lab reports are supported.")
 
     try:
-        # Clear old PDFs in input folder
+        # Purge stale JSON output before processing new file
+        if os.path.exists(JSON_PATH):
+            os.remove(JSON_PATH)
+
+        # Clear old files safely in input folder
         for old_f in os.listdir(INPUT_DIR):
             old_path = os.path.join(INPUT_DIR, old_f)
             if os.path.isfile(old_path):
-                os.remove(old_path)
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    pass
 
-        # Save uploaded PDF file to input/ directory
-        saved_pdf_path = os.path.join(INPUT_DIR, file.filename)
+        # Save uploaded PDF with sanitized filename
+        safe_filename = os.path.basename(file.filename)
+        saved_pdf_path = os.path.join(INPUT_DIR, safe_filename)
         with open(saved_pdf_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # Import load_models execution functions dynamically or trigger CLI execution
-        # Running load_models as subprocess ensures clean execution and cache flush
+        # Execute model pipeline subprocess
         proc = subprocess.run(
-            [sys.executable, os.path.join(BASE_DIR, "load_models.py")],
+            [sys.executable, os.path.join(BASE_DIR, "load_models.py"), safe_filename],
             capture_output=True,
             text=True
         )
 
-        # Read generated OCR output JSON
+        # Validate that fresh JSON was generated
         if not os.path.exists(JSON_PATH):
-            raise HTTPException(status_code=500, detail="OCR parsing failed to produce diagnostic JSON output.")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"OCR parsing failed. Subprocess output: {proc.stderr or proc.stdout}"
+            )
 
         with open(JSON_PATH, "r", encoding="utf-8") as f:
             raw_ocr_output = json.load(f)
 
-        # Return structured response payload for Frontend Rendering
         return JSONResponse(content={
             "success": True,
-            "filename": file.filename,
+            "filename": safe_filename,
             "raw_summary_output": proc.stdout,
             "parsed_data": raw_ocr_output
         })
