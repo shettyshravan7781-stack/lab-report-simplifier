@@ -1,36 +1,11 @@
 {
   "patient": {
-    "name": "Yashvi M. Patel",
-    "age": "21",
-    "gender": "Female"
+    "name": "Clinical Patient",
+    "age": "N/A",
+    "gender": "N/A"
   },
-  "tests": [
-    {
-      "test": "Bleeding Time (BT)",
-      "value": "7",
-      "unit": "min.",
-      "reference": "3 - 10"
-    },
-    {
-      "test": "Clotting Time (CT)",
-      "value": "5",
-      "unit": "min.",
-      "reference": "2 - 7"
-    },
-    {
-      "test": "Prothrombin Time (PT)",
-      "value": "11.2",
-      "unit": "sec.",
-      "reference": "10.3 - 12.8"
-    },
-    {
-      "test": "Activated Partial Thromboplastin Time (APTT)",
-      "value": "35",
-      "unit": "sec.",
-      "reference": "25 - 37"
-    }
-  ],
-  "panel_type": "Coagulation / Hemostasis Profile",
+  "tests": [],
+  "panel_type": "General Clinical Diagnostic Panel",
   "organ_risks": {
     "Target_Anemia_Risk": {
       "risk_probability": 0.0,
@@ -63,5 +38,5 @@
       "status": "LOW RISK   [OK]"
     }
   },
-  "clinical_narrative": "EXECUTIVE SUMMARY\n-----------------\nDiagnostic assessment synthesized for Yashvi M. Patel (21, Female) presenting for Coagulation / Hemostasis Profile.\nPHYSIOLOGICAL HOMEOSTASIS: All 4 evaluated laboratory parameters reside strictly within established physiological reference intervals. Quantitative biochemical profiles confirm intact cellular homeostasis and preserved parenchymal function across evaluated axes.\nPredictive machine learning organ risk models demonstrate low probability across all surveyed systems (< 1.0%), corroborating the absence of acute systemic decompensation.\nThe diagnostic baseline was established across 4 extracted biomarkers to provide a comprehensive physiological evaluation.\n\nBIOMARKER ANALYSIS\n------------------\nPhysiological Baseline (Normal Markers):\n- Bleeding Time (BT) (7.0): Maintained within standard physiological reference boundaries.\n- Clotting Time (CT) (5.0): Maintained within standard physiological reference boundaries.\n- Prothrombin Time (PT) (11.2): Maintained within standard physiological reference boundaries.\n- Activated Partial Thromboplastin Time (APTT) (35.0): Maintained within standard physiological reference boundaries.\nBiological markers confirm preserved metabolic and cellular pathway integrity across all 4 within-range indicators.\n\nOut-of-Range Parameter Deviations:\n- No biomarker deviations detected. All quantitative indices demonstrate balanced organ output.\n\nHEALTH THREATS & POTENTIAL RISKS\n--------------------------------\nDiagnostic Differential & Clinical Considerations:\n- No acute pathological risks or organ system decompensation indicated by current laboratory indices.\n- Preservation of homeostasis supports ongoing preventive maintenance without immediate diagnostic interventions.\n\nMachine Learning Predictive Organ Risk Profile:\n  * Anemia                   :   0.00% [LOW RISK   [OK]]\n  * Diabetes                 :   0.12% [LOW RISK   [OK]]\n  * Kidney                   :   5.00% [LOW RISK   [OK]]\n  * Lipid                    :   5.00% [LOW RISK   [OK]]\n  * Liver                    :   5.00% [LOW RISK   [OK]]\n  * Overall Health           :   5.00% [LOW RISK   [OK]]\n\nRECOMMENDED ACTION PLAN\n-----------------------\n1. Primary Care Review: Review laboratory findings with the primary healthcare provider during the next regularly scheduled annual wellness examination.\n2. Baseline Preservation: Maintain balanced nutritional, hydration, and physical activity habits that support existing metabolic and organ homeostasis.\n3. Periodic Routine Screening: Continue routine diagnostic screening intervals appropriate for Coagulation / Hemostasis Profile in 6 to 12 months as recommended by clinical guidelines.\n4. Longitudinal Comparison: Retain baseline laboratory indices for comparative assessment against future diagnostic panels to detect subtle subclinical trajectories.\n5. Personal Record Maintenance: Archive a copy of this diagnostic audit report in personal health records for ongoing health continuity.\n"
+  "clinical_narrative": "EXECUTIVE SUMMARY\n-----------------\nDiagnostic assessment synthesized for Clinical Patient (N/A, N/A) presenting for General Clinical Diagnostic Panel.\nPHYSIOLOGICAL HOMEOSTASIS: All 0 evaluated laboratory parameters reside strictly within established physiological reference intervals. Quantitative biochemical profiles confirm intact cellular homeostasis and preserved parenchymal function across evaluated axes.\nPredictive machine learning organ risk models demonstrate low probability across all surveyed systems (< 1.0%), corroborating the absence of acute systemic decompensation.\nThe diagnostic baseline was established across 0 extracted biomarkers to provide a comprehensive physiological evaluation.\n\nBIOMARKER ANALYSIS\n------------------\nBaseline Summary: Evaluated biomarkers reflect dynamic physiological states requiring contextual correlation.\n\nOut-of-Range Parameter Deviations:\n- No biomarker deviations detected. All quantitative indices demonstrate balanced organ output.\n\nHEALTH THREATS & POTENTIAL RISKS\n--------------------------------\nDiagnostic Differential & Clinical Considerations:\n- No acute pathological risks or organ system decompensation indicated by current laboratory indices.\n- Preservation of homeostasis supports ongoing preventive maintenance without immediate diagnostic interventions.\n\nMachine Learning Predictive Organ Risk Profile:\n  * Anemia                   :   0.00% [LOW RISK   [OK]]\n  * Diabetes                 :   0.12% [LOW RISK   [OK]]\n  * Kidney                   :   5.00% [LOW RISK   [OK]]\n  * Lipid                    :   5.00% [LOW RISK   [OK]]\n  * Liver                    :   5.00% [LOW RISK   [OK]]\n  * Overall Health           :   5.00% [LOW RISK   [OK]]\n\nRECOMMENDED ACTION PLAN\n-----------------------\n1. Primary Care Review: Review laboratory findings with the primary healthcare provider during the next regularly scheduled annual wellness examination.\n2. Baseline Preservation: Maintain balanced nutritional, hydration, and physical activity habits that support existing metabolic and organ homeostasis.\n3. Periodic Routine Screening: Continue routine diagnostic screening intervals appropriate for General Clinical Diagnostic Panel in 6 to 12 months as recommended by clinical guidelines.\n4. Longitudinal Comparison: Retain baseline laboratory indices for comparative assessment against future diagnostic panels to detect subtle subclinical trajectories.\n5. Personal Record Maintenance: Archive a copy of this diagnostic audit report in personal health records for ongoing health continuity.\n"
 }
