@@ -339,37 +339,83 @@ def parse_ocr_entry(item):
     return clean_test_name, num_val, raw_val, raw_ref
 
 
-def is_out_of_range(val, ref_range):
-    if not ref_range or str(ref_range).strip().upper() in ["N/A", ""]:
-        return False
+def determine_biomarker_status(val, ref_range):
+    """
+    Dynamically determines biomarker status ("LOW", "HIGH", or "NORMAL")
+    by comparing numerical val against ref_min and ref_max parsed directly from ref_range.
+    """
+    if val is None or not ref_range or str(ref_range).strip().upper() in ["N/A", "NONE", "NORMAL", "NEGATIVE", "NIL", ""]:
+        return "OUT_OF_RANGE"
+
     ref_str = str(ref_range).strip().lower()
 
     try:
         num_val = float(val)
+    except (ValueError, TypeError):
+        return "OUT_OF_RANGE"
+
+    if any(m_word in ref_str for m_word in ["ckd-epi", "calculated", "direct", "colorimetric", "method"]):
+        return "NORMAL"
+
+    # Pattern: low - high (e.g. 13 - 17, 81.0 - 101.0, 4.0 to 10.0)
+    m_range = re.search(r"(\d*\.?\d+)\s*(?:-|–|to)\s*(\d*\.?\d+)", ref_str, re.IGNORECASE)
+    if m_range:
+        low = float(m_range.group(1))
+        high = float(m_range.group(2))
+        if low > high:
+            low, high = high, low
+        if num_val < low:
+            return "LOW"
+        elif num_val > high:
+            return "HIGH"
+        return "NORMAL"
+
+    # Pattern: < limit
+    m_lt = re.search(r"(?:<|<=|less than)\s*(\d*\.?\d+)", ref_str, re.IGNORECASE)
+    if m_lt:
+        limit = float(m_lt.group(1))
+        if num_val >= limit:
+            return "HIGH"
+        return "NORMAL"
+
+    # Pattern: > limit
+    m_gt = re.search(r"(?:>|>=|greater than)\s*(\d*\.?\d+)", ref_str, re.IGNORECASE)
+    if m_gt:
+        limit = float(m_gt.group(1))
+        if num_val <= limit:
+            return "LOW"
+        return "NORMAL"
+
+    # Fallback to general two-number regex if range had other separators
+    numbers = re.findall(r"[\d]+\.?[\d]*", ref_str)
+    if len(numbers) >= 2:
+        low, high = float(numbers[0]), float(numbers[1])
+        if low > high:
+            low, high = high, low
+        if num_val < low:
+            return "LOW"
+        elif num_val > high:
+            return "HIGH"
+        return "NORMAL"
+
+    return "OUT_OF_RANGE"
+
+
+def is_out_of_range(val, ref_range):
+    if not ref_range or str(ref_range).strip().upper() in ["N/A", "NONE", "NORMAL", "NEGATIVE", "NIL", ""]:
+        return False
+    ref_str = str(ref_range).strip().lower()
+
+    try:
+        float(val)
     except (ValueError, TypeError):
         return False
 
     if any(m_word in ref_str for m_word in ["ckd-epi", "calculated", "direct", "colorimetric", "method"]):
         return False
 
-    if not ("-" in ref_str or "<" in ref_str or ">" in ref_str):
-        return False
-
-    if "<" in ref_str:
-        lim = extract_numeric(ref_str)
-        return num_val >= lim if lim is not None else False
-    if ">" in ref_str:
-        lim = extract_numeric(ref_str)
-        return num_val <= lim if lim is not None else False
-
-    numbers = re.findall(r"[\d]+\.?[\d]*", ref_str)
-    if len(numbers) >= 2:
-        low, high = float(numbers[0]), float(numbers[1])
-        if low > high:
-            low, high = high, low
-        return num_val < low or num_val > high
-
-    return False
+    status = determine_biomarker_status(val, ref_range)
+    return status in ["LOW", "HIGH"]
 
 
 GARBAGE_KEYWORDS = [
@@ -399,11 +445,14 @@ for item in all_tests_list:
             else:
                 full_ref = ref_str or "N/A"
 
+            status = determine_biomarker_status(num_val, ref_range)
+
             abnormal_findings.append({
                 "test": test_name,
                 "val": num_val,
                 "unit": unit_str,
                 "ref": full_ref,
+                "status": status,
                 "flag": f"Out of Range (Ref: {full_ref})"
             })
 
@@ -670,115 +719,208 @@ PATHOPHYSIOLOGY_RULES = [
     (
         r"\bsodium\b",
         "Serum Sodium / Osmoregulatory Homeostasis",
-        lambda val: (
+        lambda status: (
             "Hyponatremia / Hypoosmolar State: Serum sodium concentration reflects an excess of total body water relative to circulating sodium solutes. Potential etiologies include dilutional overload, diuretic therapy, syndrome of inappropriate antidiuresis (SIADH), or reduced effective arterial blood volume."
-            if val is not None and val < 135 else
+            if status == "LOW" else
             "Hypernatremia / Hyperosmolar State: Denotes a deficit of free water relative to extracellular sodium. Potential causes include inadequate fluid intake, excessive insensible losses, osmotic diuresis, or central/nephrogenic diabetes insipidus."
-            if val is not None and val > 145 else
+            if status == "HIGH" else
             "Dysnatremia: Osmotic equilibrium disturbance requiring clinical fluid and solute evaluation."
         )
     ),
     (
         r"\bpotassium\b",
         "Serum Potassium / Cardiac Membrane Potential",
-        lambda val: (
+        lambda status: (
             "Hypokalemia: Depressed serum potassium alters cellular resting membrane potentials and neuromuscular transmission. Potential causes include gastrointestinal losses, loop or thiazide diuretic therapy, hypomagnesemia, or intracellular shifting."
-            if val is not None and val < 3.5 else
+            if status == "LOW" else
             "Hyperkalemia: Elevated serum potassium carries high clinical urgency due to risks of cardiac conduction anomalies and repolarization changes. Potential etiologies include decreased renal excretion, potassium-sparing agents, metabolic acidosis, or tissue breakdown."
-            if val is not None and val > 5.0 else
+            if status == "HIGH" else
             "Dyskalemia: Extracellular-to-intracellular potassium balance alteration requiring close surveillance."
         )
     ),
     (
         r"\bchloride\b",
         "Serum Chloride / Electrochemical & Acid-Base Equilibrium",
-        lambda val: "Dyschloremia: Reflects alterations in systemic acid-base equilibrium, volume status, or renal bicarbonate reciprocal handling."
+        lambda status: (
+            "Hypochloremia: Subnormal serum chloride levels typically indicate metabolic alkalosis, prolonged vomiting, or volume contraction."
+            if status == "LOW" else
+            "Hyperchloremia: Elevated serum chloride levels point to hyperchloremic metabolic acidosis, renal tubular acidosis, or excessive saline administration."
+            if status == "HIGH" else
+            "Dyschloremia: Reflects alterations in systemic acid-base equilibrium, volume status, or renal bicarbonate reciprocal handling."
+        )
     ),
     (
         r"\b(creatinine|egfr|gfr)\b",
         "Renal Filtration & Glomerular Clearance",
-        lambda val: "Glomerular Filtration Impairment: Elevation in serum creatinine or depression of estimated GFR signifies compromised renal clearance of metabolic nitrogenous byproducts, warranting differential evaluation for acute kidney injury (AKI) versus intrinsic chronic renal insufficiency."
+        lambda status: (
+            "Glomerular Filtration Impairment / Renal Retention: Compromised glomerular clearance or elevated nitrogenous retention, warranting differential evaluation for acute kidney injury (AKI) versus intrinsic chronic renal insufficiency."
+            if status == "HIGH" else
+            "Altered Filtration Dynamics / Subnormal Marker: Subnormal creatinine or reduced clearance marker indicates diminished muscle mass, cachexia, or hyperfiltration dynamics."
+            if status == "LOW" else
+            "Glomerular Filtration Impairment: Elevation in serum creatinine or depression of estimated GFR signifies compromised renal clearance of metabolic nitrogenous byproducts, warranting differential evaluation for acute kidney injury (AKI) versus intrinsic chronic renal insufficiency."
+        )
     ),
     (
         r"\b(urea|blood urea nitrogen|bun)\b",
         "Nitrogenous Clearance & Urea Cycle Kinetics",
-        lambda val: "Azotemia / Nitrogen Retention: Elevated urea or BUN levels signify reduced glomerular clearance, prerenal hypoperfusion (dehydration or volume depletion), or accelerated catabolic protein degradation."
+        lambda status: (
+            "Azotemia / Nitrogen Retention: Elevated urea or BUN levels signify reduced glomerular clearance, prerenal hypoperfusion (dehydration or volume depletion), or accelerated catabolic protein degradation."
+            if status == "HIGH" else
+            "Subnormal Nitrogenous Biomarkers: Depressed urea/BUN levels reflect severe hepatic synthetic insufficiency, malnutrition, low protein intake, or fluid overload."
+            if status == "LOW" else
+            "Azotemia / Nitrogen Retention: Elevated urea or BUN levels signify reduced glomerular clearance, prerenal hypoperfusion (dehydration or volume depletion), or accelerated catabolic protein degradation."
+        )
     ),
     (
         r"\buric\s*acid\b",
         "Purine Metabolism & Urate Clearance",
-        lambda val: "Hyperuricemia: Reflects accelerated purine turnover or reduced renal tubular urate excretion, presenting elevated risk for crystal-induced arthropathy (gout) or nephrolithiasis."
+        lambda status: (
+            "Hyperuricemia: Reflects accelerated purine turnover or reduced renal tubular urate excretion, presenting elevated risk for crystal-induced arthropathy (gout) or nephrolithiasis."
+            if status == "HIGH" else
+            "Hypouricemia: Depressed serum uric acid may indicate proximal renal tubular defect (Fanconi syndrome), severe liver disease, or pharmacological xanthine oxidase inhibition."
+            if status == "LOW" else
+            "Purine Metabolism Variance: Urate concentration deviation requiring clinical metabolic assessment."
+        )
     ),
     (
         r"\b(calcium|phosphorus|phosphate)\b",
         "Bone Mineral Metabolism & Calcium-Phosphate Axis",
-        lambda val: "Mineral Metabolism Dysregulation: Alteration in serum calcium or phosphorus points to shifts in parathyroid axis activity, renal tubular mineral handling, or vitamin D metabolic equilibrium."
+        lambda status: (
+            "Hypercalcemia / Hyperphosphatemia: Elevated mineral levels indicate primary hyperparathyroidism, malignancy-associated osteolysis, excessive supplementation, or impaired renal excretion."
+            if status == "HIGH" else
+            "Hypocalcemia / Hypophosphatemia: Subnormal mineral levels point to vitamin D deficiency, hypoparathyroidism, intestinal malabsorption, or renal mineral wasting."
+            if status == "LOW" else
+            "Mineral Metabolism Dysregulation: Alteration in serum calcium or phosphorus points to shifts in parathyroid axis activity, renal tubular mineral handling, or vitamin D metabolic equilibrium."
+        )
     ),
     (
         r"\b(alt|sgpt|ast|sgot)\b",
         "Hepatocellular Integrity & Transaminases",
-        lambda val: "Hepatocellular Transaminitis: Elevation in serum transaminases (ALT/AST) reflects hepatocellular stress or loss of membrane integrity, warranting correlation with hepatic steatosis, viral etiology, or pharmacological exposure."
+        lambda status: (
+            "Hepatocellular Transaminitis: Elevation in serum transaminases (ALT/AST) reflects hepatocellular stress or loss of membrane integrity, warranting correlation with hepatic steatosis, viral etiology, toxic exposure, or pharmacological injury."
+            if status == "HIGH" else
+            "Subnormal Transaminase Levels: Depressed transaminases have minimal pathological significance but may rarely correlate with pyridoxine (vitamin B6) deficiency or end-stage cirrhosis."
+            if status == "LOW" else
+            "Hepatocellular Transaminitis: Elevation in serum transaminases (ALT/AST) reflects hepatocellular stress or loss of membrane integrity, warranting correlation with hepatic steatosis, viral etiology, or pharmacological exposure."
+        )
     ),
     (
         r"\b(bilirubin|alkaline phosphatase|alp|ggt)\b",
         "Hepatobiliary Clearance & Cholestatic Axis",
-        lambda val: "Hepatobiliary / Cholestatic Pattern: Abnormalities in bilirubin or alkaline phosphatase indicate altered biliary clearance, ductal inflammation, or hepatic excretory compromise."
+        lambda status: (
+            "Hepatobiliary / Cholestatic Elevation: Elevated bilirubin or biliary enzymes indicate impaired biliary drainage, ductal cholestasis, parenchymal inflammation, or hemolysis."
+            if status == "HIGH" else
+            "Subnormal Biliary Biomarkers: Decreased values are clinically atypical but may occur in severe zinc or protein deficiency or hypophosphatasia."
+            if status == "LOW" else
+            "Hepatobiliary / Cholestatic Pattern: Abnormalities in bilirubin or alkaline phosphatase indicate altered biliary clearance, ductal inflammation, or hepatic excretory compromise."
+        )
     ),
     (
-        r"\b(hemoglobin|haemoglobin|hb|rbc|hematocrit|hct|mcv|mch|mchc)\b",
+        r"\b(rbcs?|red blood|hemoglobin|haemoglobin|hb|hematocrit|hct|mcv|mch|mchc|rdw)\b",
         "Erythrocytic Axis & Tissue Oxygenation",
-        lambda val: (
-            "Anemic Deficit / Reduced Oxygen Carriage: Subnormal erythrocytic parameters compromise systemic oxygen delivery. Differential includes iron deficiency, anemia of chronic disease, nutritional deficits (B12/folate), or occult blood loss."
-            if val is not None and val < 13.0 else
-            "Erythrocytosis: Elevated red cell indices suggest secondary response to hypoxia, volume contraction (hemoconcentration), or autonomous erythropoiesis."
+        lambda status: (
+            "Anemic Deficit / Reduced Oxygen Carriage: Subnormal erythrocytic parameters compromise systemic oxygen delivery. Differential includes iron deficiency, anemia of chronic disease, nutritional deficits (B12/folate), microcytic/hypochromic indices, or occult blood loss."
+            if status == "LOW" else
+            "Erythrocytosis / Macrocytosis: Elevated red cell indices suggest secondary response to hypoxia, volume contraction (hemoconcentration), or autonomous erythropoiesis."
+            if status == "HIGH" else
+            "Erythrocytic Dysregulation: Abnormal red cell indices warranting hematological review."
         )
     ),
     (
-        r"\b(wbc|leucocyte|white blood)\b",
+        r"\b(wbcs?|leucocytes?|leukocytes?|white blood|neutrophils?|lymphocytes?|monocytes?|eosinophils?|basophils?)\b",
         "Leukocytic / Immune Surveillance",
-        lambda val: (
-            "Leukocytosis: Elevated total leukocyte count reflects systemic inflammatory response, infectious etiology, or physiological immune mobilization."
-            if val is not None and val > 11.0 else
+        lambda status: (
+            "Leukocytosis: Elevated total leukocyte count reflects systemic inflammatory response, infectious etiology, tissue necrosis, or physiological immune mobilization."
+            if status == "HIGH" else
             "Leukopenia: Decreased white blood cells indicate bone marrow suppression, viral consumption, or autoimmune marrow clearance."
+            if status == "LOW" else
+            "Leukocytic Deviation: White blood cell index variance requiring differential evaluation."
         )
     ),
     (
-        r"\b(platelet|thrombocyte)\b",
+        r"\b(platelets?|thrombocytes?|mpv)\b",
         "Thrombocytic / Primary Hemostasis",
-        lambda val: (
+        lambda status: (
             "Thrombocytopenia: Depressed platelet count impairs primary hemostatic plug formation, heightening risk of microvascular bleeding or purpura."
-            if val is not None and val < 150 else
-            "Thrombocytosis: Elevated platelet count reflects an acute-phase reactant state, occult inflammation, or myeloproliferative process."
+            if status == "LOW" else
+            "Thrombocytosis: Elevated platelet count reflects an acute-phase reactant state, occult inflammation, iron deficiency, or myeloproliferative process."
+            if status == "HIGH" else
+            "Thrombocytic Dysregulation: Alteration in platelet count or indices requiring primary hemostasis review."
         )
     ),
     (
-        r"\b(glucose|sugar|fbs|ppbs|rbs|hba1c)\b",
+        r"\b(glucose|sugar|fbs|ppbs|rbs|hba1c|glycated hemoglobin|eag)\b",
         "Glycemic Homeostasis & Carbohydrate Metabolism",
-        lambda val: "Dysglycemia: Impaired glycemic regulation indicates peripheral insulin resistance, inadequate beta-cell secretion, or metabolic stress."
+        lambda status: (
+            "Hyperglycemia / Glycemic Dysregulation: Impaired glycemic regulation indicates peripheral insulin resistance, inadequate beta-cell secretion, or metabolic stress."
+            if status == "HIGH" else
+            "Hypoglycemia: Subnormal glucose levels present acute neuroglycopenic risk, requiring evaluation for excess insulin, medication effects, prolonged fasting, or adrenal insufficiency."
+            if status == "LOW" else
+            "Dysglycemia: Impaired glycemic regulation indicates peripheral insulin resistance, inadequate beta-cell secretion, or metabolic stress."
+        )
     ),
     (
         r"\b(cholesterol|triglyceride|hdl|ldl|vldl)\b",
         "Lipid Metabolism & Atherogenic Risk",
-        lambda val: "Atherogenic Dyslipidemia: Elevated circulating atherogenic lipoproteins contribute to vascular endothelial stress and long-term cardiovascular risk."
+        lambda status: (
+            "Atherogenic Dyslipidemia: Elevated circulating atherogenic lipoproteins contribute to vascular endothelial stress and long-term cardiovascular risk."
+            if status == "HIGH" else
+            "Hypolipidemia: Markedly low lipid levels may indicate malabsorption, malnutrition, severe chronic illness, or reduced atheroprotective HDL."
+            if status == "LOW" else
+            "Atherogenic Dyslipidemia: Elevated circulating atherogenic lipoproteins contribute to vascular endothelial stress and long-term cardiovascular risk."
+        )
     ),
     (
-        r"\b(pt|inr|aptt|ptt|bleeding time|clotting time)\b",
+        r"\b(pt|inr|aptt|ptt|bleeding time|clotting time|fibrinogen)\b",
         "Hemostatic Cascade & Coagulation Pathways",
-        lambda val: "Coagulation Cascade Alteration: Prolonged clotting parameters reflect impaired synthesis or consumption of coagulation factors, circulating inhibitors, or anticoagulant influence."
+        lambda status: (
+            "Coagulation Cascade Prolongation: Prolonged clotting parameters reflect impaired synthesis or consumption of coagulation factors, circulating inhibitors, or anticoagulant influence."
+            if status == "HIGH" else
+            "Hypercoagulable State / Accelerated Clotting: Shortened coagulation times indicate prothrombotic risk or elevated acute-phase reactants."
+            if status == "LOW" else
+            "Coagulation Cascade Alteration: Prolonged clotting parameters reflect impaired synthesis or consumption of coagulation factors, circulating inhibitors, or anticoagulant influence."
+        )
     ),
     (
         r"\b(tsh|t3|t4|ft3|ft4)\b",
         "Thyroid Endocrine Axis",
-        lambda val: "Thyroid Axis Dysregulation: Subnormal or elevated thyrotropin indicates altered baseline metabolic rate, requiring evaluation for primary hypo- or hyperthyroidism."
+        lambda status: (
+            "Thyroid Axis Variance (Elevated Parameter): Elevated thyrotropin (TSH) denotes primary hypothyroidism, while elevated free thyroid hormones (T3/T4) indicate thyrotoxicosis/hyperthyroidism."
+            if status == "HIGH" else
+            "Thyroid Axis Variance (Suppressed Parameter): Suppressed TSH denotes hyperthyroidism or exogenous hormone excess, while subnormal T3/T4 denotes hypothyroidism."
+            if status == "LOW" else
+            "Thyroid Axis Dysregulation: Subnormal or elevated thyrotropin indicates altered baseline metabolic rate, requiring evaluation for primary hypo- or hyperthyroidism."
+        )
     )
 ]
 
 
-def _map_biomarker_pathophysiology(test_name, val):
+def _map_biomarker_pathophysiology(test_name, val=None, status=None, ref_range=None):
     name_lower = str(test_name).lower()
+
+    # Check if 'val' was passed as a status string directly (e.g. "LOW" or "HIGH")
+    if isinstance(val, str) and val.upper() in ["LOW", "HIGH", "OUT_OF_RANGE"]:
+        if not status:
+            status = val.upper()
+            val = None
+
+    # Dynamically determine status from val and ref_range if status not specified
+    if not status or str(status).upper() not in ["LOW", "HIGH"]:
+        if val is not None and ref_range:
+            status = determine_biomarker_status(val, ref_range)
+        else:
+            status = "OUT_OF_RANGE"
+    else:
+        status = str(status).upper()
+
     for pattern, label, func in PATHOPHYSIOLOGY_RULES:
         if re.search(pattern, name_lower):
-            return label, func(val)
+            try:
+                explanation = func(status)
+            except Exception:
+                explanation = func("OUT_OF_RANGE")
+            return label, explanation
+
     return "Metabolic / Biochemical Axis", f"Deviation in {test_name} ({val}) represents a variance from established physiological reference boundaries requiring clinical correlation."
 
 
@@ -852,9 +994,10 @@ The diagnostic baseline was established across {len(extracted_dict)} extracted b
             t_val = item.get("val")
             t_unit = str(item.get("unit") or "").strip()
             t_ref = str(item.get("ref") or item.get("reference") or "").strip()
+            t_status = item.get("status")
             unit_str = f" {t_unit}" if t_unit else ""
             ref_str = f" (Reference: {t_ref})" if t_ref and t_ref.upper() != "N/A" else ""
-            axis_label, path_desc = _map_biomarker_pathophysiology(t_name, t_val)
+            axis_label, path_desc = _map_biomarker_pathophysiology(t_name, val=t_val, status=t_status, ref_range=t_ref)
             abnormal_desc_items.append(
                 f"- {t_name} = {t_val}{unit_str}{ref_str} [{axis_label}]:\n"
                 f"  {path_desc}"
@@ -882,7 +1025,9 @@ The diagnostic baseline was established across {len(extracted_dict)} extracted b
         for item in abnormal_list:
             t_name = item.get("test", "Unknown")
             t_val = item.get("val")
-            axis_label, path_desc = _map_biomarker_pathophysiology(t_name, t_val)
+            t_ref = str(item.get("ref") or item.get("reference") or "").strip()
+            t_status = item.get("status")
+            axis_label, path_desc = _map_biomarker_pathophysiology(t_name, val=t_val, status=t_status, ref_range=t_ref)
             diff_threats.append(f"- {axis_label}: Longitudinal risk secondary to altered {t_name} levels.")
         diff_str = (
             "Diagnostic Differential & Clinical Considerations:\n" + "\n".join(diff_threats) + "\n"
