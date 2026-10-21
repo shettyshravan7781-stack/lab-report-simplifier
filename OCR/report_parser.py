@@ -26,7 +26,7 @@ load_dotenv()
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INPUT_DIR = os.path.join(BASE_DIR, "input")
 OUTPUT_DIR = os.path.join(BASE_DIR, "OCR", "output")
-OUTPUT_JSON = os.path.join(OUTPUT_DIR, "report_output.json")
+OUTPUT_JSON = os.path.join(OUTPUT_DIR, "report.json")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(INPUT_DIR, exist_ok=True)
@@ -68,6 +68,63 @@ METHOD_NOISE_TERMS = [
     "Jaffe's Method", "Biuret Method", "Bromocresol Green", "Direct ISE"
 ]
 
+NON_MEDICAL_PROSE_TERMS = {
+    "roadmap", "engineering", "hardware", "software", "circuit", "sensor",
+    "flight", "drone", "esp32", "controller", "motor", "pin", "gpio", "github",
+    "workflow", "budget", "member", "team", "test gate", "judges", "assembly",
+    "components", "optimization", "phase", "stage", "thesis", "conference",
+    "paper", "university", "algorithm", "framework", "module", "abstract",
+    "introduction", "litewing", "wi-fi", "wifi", "pump", "propeller", "stabilization",
+    "battery", "rpm", "thrust", "payload", "esc", "telemetry", "receiver", "transmitter",
+    "invoice", "billing", "subtotal", "tax", "shipping", "quantity", "discount", "price",
+    "total amount", "due date", "po box", "payment", "receipt", "customer"
+}
+
+
+def clean_parameter_key(raw_k):
+    r"""
+    Strips leading bullets, dashes, symbols (^[\•\-\*\s]+) and empty parentheses (),
+    while preserving meaningful parameter tags like 'LDL Cholesterol (Calculated)'.
+    """
+    if not raw_k:
+        return ""
+    k = str(raw_k).strip()
+    k = re.sub(r"^[\•\-\*\s\.:]+", "", k).strip()
+    k = re.sub(r"[\d\.\-\s:]+$", "", k).strip()
+    k = re.sub(r"\(\s*\)", "", k).strip()
+    k = re.sub(r"\b(Normal|High|Low|Abnormal)\b", "", k, flags=re.IGNORECASE).strip()
+    k = re.sub(r"\s+", " ", k).strip()
+    return k
+
+
+COMMON_TESSERACT_PATHS = [
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
+    os.path.expandvars(r"%ProgramFiles%\Tesseract-OCR\tesseract.exe"),
+    os.path.expandvars(r"%ProgramFiles(x86)%\Tesseract-OCR\tesseract.exe"),
+]
+
+def configure_tesseract():
+    """
+    Dynamically configures pytesseract path on Windows systems.
+    Returns True if a valid tesseract binary is located, False otherwise.
+    """
+    try:
+        import pytesseract
+        import shutil
+        if shutil.which("tesseract"):
+            return True
+        for p in COMMON_TESSERACT_PATHS:
+            if os.path.exists(p):
+                pytesseract.pytesseract.tesseract_cmd = p
+                print(f"[OCR] Located and configured Windows Tesseract path: {p}")
+                return True
+        return False
+    except Exception as e:
+        print(f"[OCR] Error configuring tesseract: {e}")
+        return False
+
 
 def parse_demographics_spatial(doc):
     """
@@ -75,6 +132,8 @@ def parse_demographics_spatial(doc):
     anchors and multi-line aware regex boundaries.
     """
     patient_info = {"name": "Unknown Patient", "age": "N/A", "gender": "N/A"}
+    if len(doc) == 0:
+        return patient_info
     p0 = doc[0]
     page_text = p0.get_text("text")
     blocks = p0.get_text("blocks")
@@ -362,7 +421,7 @@ def parse_tests_spatial_layout(doc):
         for t in tests:
             if not t.get("value"):
                 continue
-            t_name = t["test"]
+            t_name = clean_parameter_key(t["test"])
             for mt in METHOD_NOISE_TERMS:
                 t_name = re.sub(re.escape(mt), "", t_name, flags=re.IGNORECASE).strip()
             
@@ -376,7 +435,12 @@ def parse_tests_spatial_layout(doc):
                 t_ref = re.sub(re.escape(mt), "", t_ref, flags=re.IGNORECASE).strip()
             t_ref = re.sub(r"\b(Normal|High|Low)\b", "", t_ref, flags=re.IGNORECASE).strip()
 
-            if len(t_name) >= 2 and not any(ik in t_name.upper() for ik in IGNORE_KEYWORDS):
+            # Filter out non-medical prose, emojis/symbols, and out-of-range strings
+            t_lower = t_name.lower()
+            if (2 <= len(t_name) <= 45 and 
+                not any(ik in t_name.upper() for ik in IGNORE_KEYWORDS) and
+                not any(term in t_lower for term in NON_MEDICAL_PROSE_TERMS) and
+                not re.search(r"[🛑🚁🧑⚖️•\*\?!\$#@=\<\>\[\]_{}\\]", t_name)):
                 all_tests.append({
                     "test": t_name,
                     "value": t["value"],
@@ -387,9 +451,10 @@ def parse_tests_spatial_layout(doc):
     return all_tests
 
 
-def parse_report_with_gemini(raw_text):
+def parse_report_with_gemini(raw_text="", image_path=None, image_obj=None):
     """
     LLM-based structured extractor using Google GenAI SDK.
+    Supports raw text, image file path, or PIL/in-memory Image.
     """
     if not GEMINI_API_KEY:
         return None
@@ -397,76 +462,246 @@ def parse_report_with_gemini(raw_text):
     try:
         from google import genai
         from google.genai import types
+        import PIL.Image
         client = genai.Client(api_key=GEMINI_API_KEY)
     except Exception:
         return None
 
-    prompt = f"""
-    You are an expert medical data extraction system. Extract ALL laboratory test parameters, numeric values, units, and reference ranges from this OCR text.
+    prompt = """
+    You are an expert medical data extraction system. Extract ALL laboratory test parameters, numeric values, units, and reference ranges from this report.
     STOP extracting biomarkers when notes, comments, clinical interpretation, or recommendations start.
     Ignore hospital headers, phone numbers, addresses, and UHID codes.
     Also extract patient metadata (Name, Age, Gender). Do NOT fabricate data.
 
     Return ONLY raw valid JSON with this exact structure (do NOT wrap in ```json markdown codeblocks):
-    {{
-      "patient": {{ "name": "extracted name or Unknown Patient", "age": "extracted age or N/A", "gender": "extracted gender or N/A" }},
+    {
+      "patient": { "name": "extracted name or Unknown Patient", "age": "extracted age or N/A", "gender": "extracted gender or N/A" },
       "tests": [
-        {{ "test": "Parameter Name", "value": "123.4", "unit": "unit", "reference": "range" }}
+        { "test": "Parameter Name", "value": "123.4", "unit": "unit", "reference": "range" }
       ]
-    }}
-
-    OCR TEXT:
-    {raw_text[:4000]}
+    }
     """
 
+    contents = []
+    if image_path and os.path.exists(image_path):
+        try:
+            import PIL.Image
+            contents.append(PIL.Image.open(image_path))
+        except Exception:
+            pass
+    elif image_obj is not None:
+        contents.append(image_obj)
+
+    if raw_text:
+        contents.append(prompt + f"\n\nOCR TEXT:\n{raw_text[:4000]}")
+    else:
+        contents.append(prompt)
+
     candidate_models = [
-        "gemini-3.8-flash",
-        "gemini-3.6-flash",
         "gemini-3.5-flash",
-        "gemini-3.1-pro-preview"
+        "gemini-3.5-flash-lite",
+        "gemini-flash-latest",
+        "gemini-3.8-flash"
     ]
 
-    for model_name in candidate_models:
-        try:
-            response = client.models.generate_content(
-                model=model_name, 
-                contents=prompt,
-                config=types.GenerateContentConfig(tools=[])
-            )
-            res_text = response.text.strip()
-            res_text = re.sub(r"^```json\s*", "", res_text, flags=re.MULTILINE)
-            res_text = re.sub(r"^```\s*", "", res_text, flags=re.MULTILINE)
-            res_text = res_text.strip("`").strip()
+    import time
+    for attempt in range(2):
+        for model_name in candidate_models:
+            try:
+                response = client.models.generate_content(
+                    model=model_name, 
+                    contents=contents
+                )
+                res_text = response.text.strip()
+                res_text = re.sub(r"^```json\s*", "", res_text, flags=re.MULTILINE)
+                res_text = re.sub(r"^```\s*", "", res_text, flags=re.MULTILINE)
+                res_text = res_text.strip("`").strip()
 
-            start_idx = res_text.find("{")
-            end_idx = res_text.rfind("}")
-            if start_idx != -1 and end_idx != -1:
-                res_text = res_text[start_idx:end_idx + 1]
+                start_idx = res_text.find("{")
+                end_idx = res_text.rfind("}")
+                if start_idx != -1 and end_idx != -1:
+                    res_text = res_text[start_idx:end_idx + 1]
 
-            parsed = json.loads(res_text)
-            if parsed and parsed.get("tests"):
-                print(f"[OCR Gemini] Successfully extracted test data using {model_name}.")
-                return parsed
+                parsed = json.loads(res_text)
+                if parsed and parsed.get("tests"):
+                    print(f"[OCR Gemini] Successfully extracted {len(parsed['tests'])} tests using {model_name}.")
+                    return parsed
 
-        except Exception:
-            continue
+            except Exception:
+                continue
+        time.sleep(1)
 
     return None
 
 
-def extract_report(pdf_path, use_llm=False):
+def parse_tests_from_plain_text(text):
     """
-    Unified extraction pipeline: executes deterministic layout-aware spatial parser.
-    Executes 100% locally with zero external network calls by default.
+    Deterministic regex fallback parser for OCR plain text.
+    Extracts patient demographics and laboratory test rows.
     """
-    doc = pymupdf.open(pdf_path)
+    tests = []
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    patient_info = {"name": "Clinical Patient", "age": "N/A", "gender": "N/A"}
+
+    # Extract patient metadata from header lines if available
+    for line in lines[:10]:
+        m_name = re.search(r"\b(?:Patient\s*Name|Client\s*Name|Name)\s*[:\-]?\s*([A-Za-z\.\s]{2,35})", line, re.IGNORECASE)
+        if m_name and not any(kw in m_name.group(1).upper() for kw in ["LAB", "PATHOLOGY", "REPORT", "DIAGNOSTIC", "TEST"]):
+            patient_info["name"] = m_name.group(1).strip()
+            break
+        m_age_gen = re.search(r"\b(\d{1,3})\s*(?:Y(?:ears?)?)?\s*[/\\|\-]\s*(Male|Female|Fem|M|F)\b", line, re.IGNORECASE)
+        if m_age_gen:
+            patient_info["age"] = m_age_gen.group(1)
+            patient_info["gender"] = "Female" if m_age_gen.group(2).upper().startswith("F") else "Male"
+
+    for line in lines:
+        if len(line) < 4:
+            continue
+        m = re.search(r"^([a-zA-Z0-9\s\(\)\/\-_]{3,45}?)\s*[:\-]?\s+([0-9]+\.?[0-9]*)\s*([a-zA-Z%\/\^0-9\(\)]*)\s*(.*)$", line)
+        if m:
+            t_name = clean_parameter_key(m.group(1))
+            val = m.group(2).strip()
+            unit = m.group(3).strip()
+            ref = m.group(4).strip()
+            if t_name and val and len(t_name) >= 2:
+                tests.append({
+                    "test": t_name,
+                    "value": val,
+                    "unit": unit or "N/A",
+                    "reference": ref or "N/A"
+                })
+    return {
+        "patient": patient_info,
+        "tests": tests
+    }
+
+
+def extract_report(file_path, use_llm=False):
+    """
+    Unified extraction pipeline: executes deterministic layout-aware spatial parser for PDFs,
+    and supports image files (.png, .jpg, .jpeg) and scanned PDFs via pytesseract / pdf2image
+    with automated Gemini Vision fallback.
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+
+    # 1. IMAGE FILE INPUT SUPPORT (.png, .jpg, .jpeg)
+    if ext in [".png", ".jpg", ".jpeg"]:
+        print(f"[OCR] Processing image report ({ext}): {file_path}")
+        image_text = ""
+        has_tesseract = configure_tesseract()
+        if has_tesseract:
+            try:
+                import pytesseract
+                from PIL import Image
+                img = Image.open(file_path)
+                image_text = pytesseract.image_to_string(img)
+                print(f"[OCR] pytesseract extracted {len(image_text)} characters from image.")
+            except Exception as e:
+                print(f"[OCR] Image pytesseract execution notice: {e}")
+                image_text = ""
+        else:
+            print("[OCR] Local tesseract.exe binary not found in standard Windows system paths.")
+
+        # If pytesseract succeeded and extracted non-trivial text
+        if image_text.strip():
+            plain_res = parse_tests_from_plain_text(image_text)
+            if plain_res.get("tests") and len(plain_res["tests"]) > 0:
+                print(f"[OCR] Extracted {len(plain_res['tests'])} tests via local Tesseract plain text.")
+                return plain_res
+
+        # AUTOMATIC FALLBACK TO GEMINI VISION:
+        # If pytesseract is missing, crashes, or returns empty text / 0 tests,
+        # automatically fall back to Gemini Vision if API key is available
+        if GEMINI_API_KEY:
+            print("[OCR] Automatically falling back to Gemini Vision API for image report extraction...")
+            try:
+                parsed = parse_report_with_gemini(image_path=file_path)
+                if parsed and parsed.get("tests") and len(parsed["tests"]) > 0:
+                    return parsed
+            except Exception as e:
+                print(f"[OCR] Gemini Vision image extraction error: {e}")
+
+        # Final fallback if we have any raw OCR text
+        if image_text.strip():
+            return parse_tests_from_plain_text(image_text)
+
+        return {
+            "patient": {"name": "Clinical Patient", "age": "N/A", "gender": "N/A"},
+            "tests": []
+        }
+
+    # 2. PDF FILE INPUT (Spatial extraction with scanned fallback)
+    doc = pymupdf.open(file_path)
     patient_data = parse_demographics_spatial(doc)
     spatial_tests = parse_tests_spatial_layout(doc)
+
+    # Scanned PDF check: 0 text blocks or total characters < 15
+    total_blocks = sum(len(page.get_text("blocks")) for page in doc)
+    total_chars = sum(len(page.get_text("text").strip()) for page in doc)
+    is_scanned_pdf = (total_blocks == 0 or total_chars < 15)
+    if is_scanned_pdf:
+        print("[OCR] Scanned or image-based PDF detected (0 blocks or <15 characters). Executing image OCR fallback...")
+        pdf_ocr_text = ""
+        has_tesseract = configure_tesseract()
+        if has_tesseract:
+            # Option A: pdf2image + pytesseract
+            try:
+                import pdf2image
+                import pytesseract
+                images = pdf2image.convert_from_path(file_path, first_page=1, last_page=min(3, len(doc)))
+                for img in images:
+                    pdf_ocr_text += " " + pytesseract.image_to_string(img)
+            except Exception as e:
+                # Option B: PyMuPDF pixmap rendering + pytesseract
+                try:
+                    import pytesseract
+                    from PIL import Image
+                    import io
+                    for page in doc[:3]:
+                        pix = page.get_pixmap()
+                        img = Image.open(io.BytesIO(pix.tobytes("png")))
+                        pdf_ocr_text += " " + pytesseract.image_to_string(img)
+                except Exception as e2:
+                    print(f"[OCR] PDF image OCR fallback notice: {e2}")
+
+        if pdf_ocr_text.strip():
+            plain_parsed = parse_tests_from_plain_text(pdf_ocr_text)
+            if plain_parsed.get("tests") and len(plain_parsed["tests"]) > 0:
+                if plain_parsed.get("patient", {}).get("name") in ["Unknown Patient", "Clinical Patient", "N/A", None]:
+                    plain_parsed["patient"] = patient_data
+                return plain_parsed
+
+        # Option C: Gemini direct pixmap parsing if key is available
+        if GEMINI_API_KEY and len(doc) > 0:
+            print("[OCR] Falling back to Gemini Vision for scanned PDF page rendering...")
+            try:
+                pix = doc[0].get_pixmap()
+                import io
+                import PIL.Image
+                img = PIL.Image.open(io.BytesIO(pix.tobytes("png")))
+                parsed = parse_report_with_gemini(image_obj=img)
+                if parsed and parsed.get("tests"):
+                    if parsed.get("patient", {}).get("name") in ["Unknown Patient", "N/A", None]:
+                        parsed["patient"] = patient_data
+                    return parsed
+            except Exception as e:
+                print(f"[OCR] Gemini scanned PDF extraction error: {e}")
+                pix = doc[0].get_pixmap()
+                import io
+                import PIL.Image
+                img = PIL.Image.open(io.BytesIO(pix.tobytes("png")))
+                parsed = parse_report_with_gemini(image_obj=img)
+                if parsed and parsed.get("tests"):
+                    if parsed.get("patient", {}).get("name") in ["Unknown Patient", "N/A", None]:
+                        parsed["patient"] = patient_data
+                    return parsed
+            except Exception:
+                pass
 
     if use_llm and GEMINI_API_KEY:
         try:
             raw_text = "\n".join([page.get_text("text") for page in doc])
-            parsed_data = parse_report_with_gemini(raw_text)
+            parsed_data = parse_report_with_gemini(raw_text=raw_text)
             if parsed_data and parsed_data.get("tests"):
                 if parsed_data.get("patient", {}).get("name") in ["Unknown Patient", "N/A", None]:
                     parsed_data["patient"] = patient_data
@@ -482,23 +717,23 @@ def extract_report(pdf_path, use_llm=False):
 
 
 if __name__ == "__main__":
-    target_pdf = None
+    target_file = None
     if len(sys.argv) > 1:
         arg_path = sys.argv[1]
         if os.path.isabs(arg_path) and os.path.exists(arg_path):
-            target_pdf = arg_path
+            target_file = arg_path
         elif os.path.exists(os.path.join(INPUT_DIR, arg_path)):
-            target_pdf = os.path.join(INPUT_DIR, arg_path)
+            target_file = os.path.join(INPUT_DIR, arg_path)
 
-    if not target_pdf:
-        pdf_files = [f for f in os.listdir(INPUT_DIR) if f.lower().endswith(".pdf")]
-        if not pdf_files:
-            raise FileNotFoundError(f"No PDF files found in input directory: {INPUT_DIR}")
-        target_pdf = os.path.join(INPUT_DIR, pdf_files[0])
+    valid_exts = (".pdf", ".png", ".jpg", ".jpeg")
+    if not target_file:
+        files = [f for f in os.listdir(INPUT_DIR) if f.lower().endswith(valid_exts)]
+        if not files:
+            raise FileNotFoundError(f"No valid PDF or image files found in input directory: {INPUT_DIR}")
+        target_file = os.path.join(INPUT_DIR, files[0])
 
-    print(f"[OCR] Target PDF: {target_pdf}")
-    # Local deterministic spatial extraction: executes 100% locally with zero network calls
-    result = extract_report(target_pdf, use_llm=False)
+    print(f"[OCR] Target File: {target_file}")
+    result = extract_report(target_file, use_llm=False)
 
     with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)

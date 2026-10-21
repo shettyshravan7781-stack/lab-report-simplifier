@@ -25,7 +25,7 @@ app.add_middleware(
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_DIR = os.path.join(BASE_DIR, "input")
-JSON_PATH = os.path.join(BASE_DIR, "OCR", "output", "report_output.json")
+JSON_PATH = os.path.join(BASE_DIR, "OCR", "output", "report.json")
 
 os.makedirs(INPUT_DIR, exist_ok=True)
 
@@ -41,8 +41,9 @@ def health_check():
 # -------------------------------------------------------------------------
 @app.post("/api/analyze-report")
 async def analyze_report(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF lab reports are supported.")
+    valid_exts = (".pdf", ".png", ".jpg", ".jpeg")
+    if not any(file.filename.lower().endswith(ext) for ext in valid_exts):
+        raise HTTPException(status_code=400, detail="Only PDF and image lab reports (.pdf, .png, .jpg, .jpeg) are supported.")
 
     try:
         # Purge stale JSON output before processing new file

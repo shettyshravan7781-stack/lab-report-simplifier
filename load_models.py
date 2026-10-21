@@ -3,6 +3,7 @@ import sys
 import json
 import joblib
 import re
+import difflib
 import time
 import logging
 import warnings
@@ -29,7 +30,7 @@ warnings.filterwarnings("ignore")
 # -------------------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, "output", "saved_models")
-JSON_PATH = os.path.join(BASE_DIR, "OCR", "output", "report_output.json")
+JSON_PATH = os.path.join(BASE_DIR, "OCR", "output", "report.json")
 SHAP_OUTPUT_DIR = os.path.join(BASE_DIR, "output", "shap_plots")
 INPUT_DIR = os.path.join(BASE_DIR, "input")
 PARSER_SCRIPT = os.path.join(BASE_DIR, "OCR", "report_parser.py")
@@ -137,7 +138,7 @@ try:
     cmd = [sys.executable, PARSER_SCRIPT]
     if target_pdf_arg:
         cmd.append(target_pdf_arg)
-    proc_res = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=15)
+    proc_res = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=45)
     if proc_res.stdout:
         print(proc_res.stdout.strip())
     if proc_res.stderr:
@@ -145,7 +146,7 @@ try:
         if clean_err.strip():
             print(clean_err.strip())
 except subprocess.TimeoutExpired as te:
-    print(f"[ERROR] OCR execution timed out after 15 seconds: {te}")
+    print(f"[ERROR] OCR execution timed out after 45 seconds: {te}")
 except Exception as e:
     print(f"[ERROR] OCR execution error: {e}")
 
@@ -153,7 +154,8 @@ except Exception as e:
 # 4. READ & INGEST EXTRACTED OCR DATA
 # -------------------------------------------------------------------------
 if not os.path.exists(JSON_PATH):
-    raise FileNotFoundError(f"CRITICAL: Failed to generate {JSON_PATH}. Check parser script paths.")
+    with open(JSON_PATH, "w", encoding="utf-8") as f:
+        json.dump({"patient": {"name": "Clinical Patient", "age": "N/A", "gender": "N/A"}, "tests": []}, f, indent=2)
 
 with open(JSON_PATH, "r", encoding="utf-8") as f:
     raw_ocr = json.load(f)
@@ -181,9 +183,9 @@ if target_pdf_arg:
     else:
         target_pdf_path = os.path.join(INPUT_DIR, target_pdf_arg)
 if not target_pdf_path or not os.path.exists(target_pdf_path):
-    pdf_files = [os.path.join(INPUT_DIR, f) for f in os.listdir(INPUT_DIR) if f.lower().endswith(".pdf")]
-    if pdf_files:
-        target_pdf_path = max(pdf_files, key=os.path.getmtime)
+    report_files = [os.path.join(INPUT_DIR, f) for f in os.listdir(INPUT_DIR) if f.lower().endswith((".pdf", ".png", ".jpg", ".jpeg"))]
+    if report_files:
+        target_pdf_path = max(report_files, key=os.path.getmtime)
 
 
 def extract_patient_metadata(pdf_path, p_info_dict, tests_list):
@@ -425,11 +427,164 @@ GARBAGE_KEYWORDS = [
     "ADA DIAGNOSTIC", "PREDIABETES", "DIAGNOSTIC CRITERIA", "LOINC:", "DATASET PANEL"
 ]
 
+RECOGNIZED_MEDICAL_BIOMARKERS = {
+    # 1. Complete Blood Count (CBC)
+    "hemoglobin", "haemoglobin", "hb", "rbc", "red blood cell", "red blood cells",
+    "wbc", "white blood cell", "white blood cells", "total leukocyte count", "total leucocyte count",
+    "tlc", "dlc", "leukocyte", "leukocytes", "platelet", "platelets", "platelet count",
+    "hematocrit", "pcv", "packed cell volume", "mcv", "mch", "mchc", "rdw", "rdw-cv", "rdw-sd",
+    "neutrophil", "neutrophils", "lymphocyte", "lymphocytes", "monocyte", "monocytes",
+    "eosinophil", "eosinophils", "basophil", "basophils", "mpv", "pct", "pdw",
+
+    # 2. Liver Function Test (LFT)
+    "bilirubin", "total bilirubin", "direct bilirubin", "indirect bilirubin",
+    "alt", "sgpt", "ast", "sgot", "alp", "alkaline phosphatase", "ggt", "gamma gt",
+    "protein total", "total protein", "albumin", "globulin", "a/g ratio", "ag ratio",
+
+    # 3. Kidney Function Test (KFT / Renal)
+    "creatinine", "serum creatinine", "urea", "blood urea", "bun", "blood urea nitrogen",
+    "egfr", "estimated gfr", "gfr", "uric acid", "serum uric acid", "bun/creatinine ratio",
+
+    # 4. Lipid Profile
+    "cholesterol", "total cholesterol", "triglycerides", "triglyceride", "hdl", "hdl cholesterol",
+    "ldl", "ldl cholesterol", "vldl", "vldl cholesterol", "non-hdl", "total/hdl ratio", "ldl/hdl ratio",
+
+    # 5. Diabetes / Glycemic Profile
+    "glucose", "fasting glucose", "postprandial glucose", "fbs", "ppbs", "rbs",
+    "random blood sugar", "hba1c", "glycated hemoglobin", "blood sugar", "estimated avg glucose",
+
+    # 6. Thyroid Profile
+    "tsh", "thyroid stimulating hormone", "t3", "total t3", "free t3", "triiodothyronine",
+    "t4", "total t4", "free t4", "thyroxine",
+
+    # 7. Electrolytes & Minerals
+    "sodium", "potassium", "chloride", "calcium", "phosphorus", "magnesium", "bicarbonate",
+
+    # 8. Iron Studies
+    "iron", "serum iron", "ferritin", "tibc", "uibc", "transferrin", "transferrin saturation",
+
+    # 9. Coagulation Profile
+    "prothrombin time", "pt", "inr", "bleeding time", "bt", "clotting time", "ct",
+    "aptt", "activated partial thromboplastin time", "ptt", "fibrinogen"
+}
+
+NON_MEDICAL_PROSE_TERMS = {
+    "roadmap", "engineering", "hardware", "software", "circuit", "sensor",
+    "flight", "drone", "esp32", "controller", "motor", "pin", "gpio", "github",
+    "workflow", "budget", "member", "team", "test gate", "judges", "assembly",
+    "components", "optimization", "phase", "stage", "thesis", "conference",
+    "paper", "university", "algorithm", "framework", "module", "abstract",
+    "introduction", "litewing", "wi-fi", "wifi", "pump", "propeller", "stabilization",
+    "battery", "rpm", "thrust", "payload", "esc", "telemetry", "receiver", "transmitter",
+    "invoice", "billing", "subtotal", "tax", "shipping", "quantity", "discount", "price",
+    "total amount", "due date", "po box", "payment", "receipt", "customer"
+}
+
+CLINICAL_HEADER_KEYWORDS = {
+    "patient", "pathology", "laboratory", "lab report", "diagnostic", "specimen", 
+    "blood", "serum", "biomarker", "reference range", "clinical", "hospital", "cbc", "kft", "lft", "lipid"
+}
+
+def normalize_ocr_text(s):
+    """
+    Normalizes common optical character recognition errors:
+    '0' -> 'o', '1' -> 'l', '5' -> 's', '8' -> 'b', 'rn' -> 'm', 'vv' -> 'w'
+    """
+    if not s:
+        return ""
+    t = str(s).lower()
+    t = t.replace('rn', 'm').replace('vv', 'w')
+    sub_map = {'0': 'o', '1': 'l', '5': 's', '8': 'b', '$': 's', '@': 'a', '|': 'l'}
+    for char, rep in sub_map.items():
+        t = t.replace(char, rep)
+    return t
+
+GENERIC_MODIFIERS = {'total', 'serum', 'count', 'test', 'level', 'direct', 'indirect', 'ratio', 'profile'}
+
+def is_genuine_medical_biomarker(test_name):
+    """
+    Validates if an extracted parameter belongs to an actual diagnostic medical report.
+    Tolerates minor OCR typos, character substitutions (e.g. 5odium -> sodium, cho1estero1 -> cholesterol),
+    and stem/prefix truncations (e.g. Creatinin -> creatinine) while strictly rejecting
+    non-medical prose/engineering terms (drone, roadmap, hardware, etc.).
+    """
+    if not test_name:
+        return False, "Empty name", None
+    t_clean = str(test_name).strip()
+    if len(t_clean) < 2 or len(t_clean) > 45:
+        return False, "Length out of standard biomarker range", None
+    t_lower = t_clean.lower()
+    if any(term in t_lower for term in NON_MEDICAL_PROSE_TERMS):
+        return False, "Matches non-medical prose terms", None
+    if re.search(r"[🛑🚁🧑⚖️\?!\$#@=\<\>\[\]_{}\\]", t_clean):
+        return False, "Contains non-medical symbols or emojis", None
+
+    # Check 1: Exact whole-word match
+    for bm in RECOGNIZED_MEDICAL_BIOMARKERS:
+        if re.search(r'\b' + re.escape(bm) + r'\b', t_lower):
+            return True, "Valid biomarker (exact match)", bm
+
+    # Check 2: OCR-normalized whole-word match (e.g. 5odium -> sodium, cho1estero1 -> cholesterol)
+    t_norm = normalize_ocr_text(t_lower)
+    for bm in RECOGNIZED_MEDICAL_BIOMARKERS:
+        if re.search(r'\b' + re.escape(bm) + r'\b', t_norm):
+            return True, "Valid biomarker (OCR-normalized match)", bm
+
+    # Check 3: Fuzzy / Stem matching on tokens (only for tokens with len >= 4 to protect short acronyms)
+    tokens = [normalize_ocr_text(w) for w in re.findall(r'[a-zA-Z0-9]+', t_lower) if len(w) >= 4]
+    for tok in tokens:
+        if tok in GENERIC_MODIFIERS:
+            continue
+        for bm in RECOGNIZED_MEDICAL_BIOMARKERS:
+            bm_targets = [bm] + [w for w in bm.split() if len(w) >= 4 and w not in GENERIC_MODIFIERS]
+            for target in bm_targets:
+                if len(target) >= 4:
+                    # Stem match (e.g. creatinin -> creatinine, bilirub -> bilirubin)
+                    if len(tok) >= 5 and (target.startswith(tok) or tok.startswith(target[:min(len(tok), len(target))])) and abs(len(tok) - len(target)) <= 2:
+                        return True, f"Valid biomarker (stem match: {bm})", bm
+                    # Fuzzy similarity (tolerates 1-2 character optical noise)
+                    sim = difflib.SequenceMatcher(None, tok, target).ratio()
+                    if sim >= 0.82:
+                        return True, f"Valid biomarker (fuzzy match: {bm})", bm
+
+    return False, "Not in recognized medical biomarker whitelist", None
+
+def is_valid_clinical_ref_str(ref_str):
+    if not ref_str:
+        return False
+    s = str(ref_str).strip().lower()
+    if s in ["normal", "negative", "nil", "non-reactive"]:
+        return True
+    if re.search(r"^\s*(\d+\.?\d*)\s*(?:-|–|to)\s*(\d+\.?\d*)\s*([a-zA-Z%\/\^]*)\s*$", s):
+        return True
+    if re.search(r"^\s*(?:<|<=|>|>=|less than|greater than)\s*(\d+\.?\d*)\s*([a-zA-Z%\/\^]*)\s*$", s):
+        return True
+    return False
+
 for item in all_tests_list:
     test_name, num_val, raw_val_str, ref_range = parse_ocr_entry(item)
     
     if any(gb in test_name.upper() for gb in GARBAGE_KEYWORDS) or len(test_name) < 2:
         continue
+
+    # Discard non-biomarkers, prose lines, and roadmap/engineering text with typo tolerance
+    is_biomarker, bio_reason, canonical_bm = is_genuine_medical_biomarker(test_name)
+    if not is_biomarker:
+        continue
+
+    has_valid_ref = is_valid_clinical_ref_str(ref_range)
+    if not has_valid_ref:
+        for fb_k, fb_v in FALLBACK_REF_RANGES.items():
+            if re.search(r'\b' + re.escape(fb_k.lower()) + r'\b', test_name.lower()):
+                ref_range = fb_v
+                has_valid_ref = True
+                break
+        if not has_valid_ref and canonical_bm:
+            for fb_k, fb_v in FALLBACK_REF_RANGES.items():
+                if fb_k.lower() == canonical_bm.lower() or re.search(r'\b' + re.escape(fb_k.lower()) + r'\b', canonical_bm.lower()):
+                    ref_range = fb_v
+                    has_valid_ref = True
+                    break
 
     num_val = normalize_biomarker_value(test_name, num_val)
     
@@ -495,6 +650,83 @@ def detect_panel(tests_keys, raw_type):
 panel_type = detect_panel(list(extracted_tests.keys()), raw_panel)
 
 # -------------------------------------------------------------------------
+# 4B. DOCUMENT DOMAIN VALIDATION & SCANNED PDF GUARDRAIL
+# -------------------------------------------------------------------------
+def validate_clinical_document(parsed_tests, raw_ocr_text=""):
+    """
+    Validates if extracted parameters belong to an actual diagnostic medical report.
+    Tolerates minor OCR typos and character substitutions for legitimate biomarkers.
+    """
+    valid_medical_tests = [
+        t for t in parsed_tests 
+        if is_genuine_medical_biomarker(t.get("test", ""))[0]
+    ]
+    
+    text_lower = normalize_ocr_text(raw_ocr_text or "").lower()
+    keyword_matches = sum(1 for kw in CLINICAL_HEADER_KEYWORDS if kw in text_lower)
+    
+    # Check 1: Zero valid medical biomarkers extracted
+    if len(valid_medical_tests) == 0:
+        return False, "Invalid Document Type: The uploaded file does not contain recognized clinical blood report parameters (e.g., CBC, LFT, KFT, Lipid). Please upload a valid medical diagnostic PDF or image."
+    
+    # Check 2: Minimum threshold of genuine medical biomarkers or clinical context
+    if len(valid_medical_tests) < 2 and keyword_matches < 2:
+        return False, "Invalid Document Type: The uploaded file does not appear to be a recognized medical lab report. Please upload a valid diagnostic test report."
+        
+    return True, "Valid"
+
+raw_ocr_text = ""
+if target_pdf_path and os.path.exists(target_pdf_path):
+    try:
+        import pymupdf
+        doc = pymupdf.open(target_pdf_path)
+        raw_ocr_text = " ".join([page.get_text("text") for page in doc])
+    except Exception:
+        raw_ocr_text = ""
+
+combined_text_for_val = raw_ocr_text
+if patient_info:
+    combined_text_for_val += " " + " ".join(str(v) for v in patient_info.values())
+if all_tests_list:
+    combined_text_for_val += " " + " ".join(str(t.get("test", "")) for t in all_tests_list)
+
+tests_to_validate = [
+    {"test": k, "value": v} for k, v in extracted_tests.items()
+] if extracted_tests else all_tests_list
+
+is_valid, validation_msg = validate_clinical_document(tests_to_validate, combined_text_for_val)
+
+if not is_valid:
+    print("\n" + "=" * 75)
+    print("     AI CLINICAL DIAGNOSTIC PIPELINE — VALIDATION FAILURE")
+    print("=" * 75)
+    print(f" [!] REJECTED: {validation_msg}")
+    print("=" * 75)
+
+    error_payload = {
+        "status": "error",
+        "error": validation_msg,
+        "message": validation_msg,
+        "patient": {
+            "name": str(patient_name) if patient_name != "Clinical Patient" else "N/A",
+            "age": str(clean_age),
+            "gender": str(clean_gender)
+        },
+        "tests": [],
+        "panel_type": "Invalid Document",
+        "organ_risks": {},
+        "clinical_narrative": f"DOCUMENT VALIDATION ERROR:\n{validation_msg}"
+    }
+
+    try:
+        with open(JSON_PATH, "w", encoding="utf-8") as f:
+            json.dump(error_payload, f, indent=2)
+    except Exception as e:
+        print(f"[WARN] Failed to write error payload to JSON: {e}")
+
+    sys.exit(0)
+
+# -------------------------------------------------------------------------
 # 5. TERMINAL HEADER
 # -------------------------------------------------------------------------
 print("\n" + "=" * 75)
@@ -546,17 +778,22 @@ def fuzzy_map_feature(extracted_dict, target_feature):
         ext_clean = re.sub(r'[^a-zA-Z0-9]', '', ext_k).lower()
         if ext_clean in tf_clean or tf_clean in ext_clean:
             return val
+
+    for ext_k, val in extracted_dict.items():
+        ek_norm = re.sub(r'[^a-zA-Z0-9]', '', normalize_ocr_text(ext_k)).lower()
+        if ek_norm == tf_clean or ek_norm in tf_clean or tf_clean in ek_norm:
+            return val
             
     for ext_k, val in extracted_dict.items():
-        ek_l = ext_k.lower()
+        ek_l = normalize_ocr_text(ext_k).lower()
         tf_l = target_feature.lower()
         if ("hb" in ek_l or "hemoglobin" in ek_l or "haemoglobin" in ek_l) and "hemoglobin" in tf_l: return val
         if ("wbc" in ek_l or "leucocyte" in ek_l) and "wbc" in tf_l: return val
-        if "creatinine" in ek_l and "creatinine" in tf_l and "ratio" not in ek_l and "ratio" not in tf_l: return val
+        if ("creatinin" in ek_l or "creatinine" in ek_l) and "creatinine" in tf_l and "ratio" not in ek_l and "ratio" not in tf_l: return val
         if ("blood urea nitrogen" in ek_l or "bun" in ek_l) and "bun" in tf_l and "ratio" not in ek_l: return val
         if "urea" in ek_l and "urea" in tf_l and "ratio" not in ek_l and "nitrogen" not in ek_l: return val
         if "tsh" in ek_l and "tsh" in tf_l: return val
-        if ("fbs" in ek_l or "fasting" in ek_l) and ("fbs" in tf_l or "fasting" in tf_l): return val
+        if ("fbs" in ek_l or "fasting" in ek_l or "glucose" in ek_l) and ("fbs" in tf_l or "fasting" in tf_l or "glucose" in tf_l): return val
         if "hba1c" in ek_l and "hba1c" in tf_l: return val
         if "sodium" in ek_l and "sodium" in tf_l: return val
         if "potassium" in ek_l and "potassium" in tf_l: return val
@@ -565,6 +802,9 @@ def fuzzy_map_feature(extracted_dict, target_feature):
         if "calcium" in ek_l and "calcium" in tf_l: return val
         if "phosphorus" in ek_l and "phosphorus" in tf_l: return val
         if "egfr" in ek_l and "egfr" in tf_l: return val
+        if "cholesterol" in ek_l and "cholesterol" in tf_l: return val
+        if "triglycerid" in ek_l and "triglyceride" in tf_l: return val
+        if "bilirubin" in ek_l and "bilirubin" in tf_l: return val
 
     return np.nan
 
@@ -1113,6 +1353,7 @@ if os.path.exists(JSON_PATH):
         with open(JSON_PATH, "r", encoding="utf-8") as f:
             final_payload = json.load(f)
         if isinstance(final_payload, dict):
+            final_payload["status"] = "success"
             final_payload["patient"] = {
                 "name": str(patient_name),
                 "age": str(clean_age),

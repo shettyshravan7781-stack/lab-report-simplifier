@@ -437,29 +437,34 @@ if not is_backend_up:
 
 
 # -----------------------------------------------------------------------------
-# PDF REPORT UPLOAD & PIPELINE EXECUTION
+# PDF / IMAGE REPORT UPLOAD & PIPELINE EXECUTION
 # -----------------------------------------------------------------------------
 col_upload, col_btn = st.columns([3, 1], vertical_alignment="bottom")
 
 with col_upload:
     uploaded_file = st.file_uploader(
-        "Upload Diagnostic Lab Report (PDF)",
-        type=["pdf"],
-        help="Upload a clinical laboratory report (CBC, Renal, Liver, Lipid, Glycemic, or Thyroid panel)."
+        "Upload Diagnostic Lab Report (PDF / Image)",
+        type=["pdf", "png", "jpg", "jpeg"],
+        help="Upload a clinical laboratory report (PDF or PNG/JPG image)."
     )
 
 with col_btn:
     analyze_clicked = st.button("🚀 Simplify & Analyze Report", use_container_width=True, disabled=(uploaded_file is None or not is_backend_up))
 
 if analyze_clicked and uploaded_file is not None:
-    with st.spinner("Processing PDF with layout-aware spatial extraction & evaluating predictive models..."):
+    with st.spinner("Processing report with layout-aware spatial extraction & evaluating predictive models..."):
         try:
-            files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
+            mime_type = "application/pdf" if uploaded_file.name.lower().endswith(".pdf") else f"image/{uploaded_file.name.split('.')[-1].lower().replace('jpg', 'jpeg')}"
+            files = {"file": (uploaded_file.name, uploaded_file.getvalue(), mime_type)}
             res = requests.post(API_URL, files=files, timeout=45)
 
             if res.status_code == 200:
-                st.session_state["last_analysis"] = res.json()
-                st.success(f" Diagnostic audit completed successfully for **{uploaded_file.name}**.")
+                resp_json = res.json()
+                st.session_state["last_analysis"] = resp_json
+                if resp_json.get("parsed_data", {}).get("status") == "error":
+                    st.warning(f"⚠️ Document validation notice for **{uploaded_file.name}**.")
+                else:
+                    st.success(f"✅ Diagnostic audit completed successfully for **{uploaded_file.name}**.")
             else:
                 error_detail = res.json().get("detail", res.text) if res.headers.get("content-type") == "application/json" else res.text
                 st.error(f"❌ Diagnostic Pipeline Error ({res.status_code}): {error_detail}")
@@ -476,142 +481,148 @@ if "last_analysis" in st.session_state:
     payload = st.session_state["last_analysis"]
     parsed_data = payload.get("parsed_data", {})
 
-    patient_meta = parsed_data.get("patient", {})
-    patient_name = patient_meta.get("name", "N/A")
-    patient_age = patient_meta.get("age", "N/A")
-    patient_gender = patient_meta.get("gender", "N/A")
-    panel_type = parsed_data.get("panel_type", "General Diagnostic Laboratory")
-    organ_risks = parsed_data.get("organ_risks", {})
-    raw_tests = parsed_data.get("tests", [])
-    narrative_str = parsed_data.get("clinical_narrative", "")
-
-    # 1. PATIENT META BANNER
-    st.markdown(f'''<div class="patient-card"><div><div class="patient-prop-label">Patient Name</div><div class="patient-prop-val">👤 {patient_name}</div></div><div><div class="patient-prop-label">Age / Gender</div><div class="patient-prop-val">🎂 {patient_age} Y / {patient_gender}</div></div><div><div class="patient-prop-label">Primary Diagnostic Panel</div><div class="patient-prop-val"><span class="badge-panel">🔬 {panel_type}</span></div></div><div><div class="patient-prop-label">Audit Pipeline Status</div><div class="patient-prop-val" style="color: #059669;"> Verified Deterministic</div></div></div>''', unsafe_allow_html=True)
-
-    # 2. TOP PRIORITY VIEW: ORGAN RISK AUDIT
-    st.markdown("### 🧬 Machine Learning Multi-Organ Risk Audit")
-    st.caption("Calibrated XGBoost predictive models evaluating subclinical organ dysfunction and systemic compromise.")
-
-    if organ_risks:
-        cols = st.columns(len(organ_risks))
-        for idx, (target_key, risk_info) in enumerate(organ_risks.items()):
-            meta = ORGAN_METADATA.get(target_key, {"label": target_key.replace("Target_", "").replace("_Risk", ""), "icon": "🩺"})
-            pct = risk_info.get("risk_percentage", 0.0) if isinstance(risk_info, dict) else float(risk_info)
-            status_text = risk_info.get("status", "LOW RISK") if isinstance(risk_info, dict) else "LOW RISK"
-            is_high = "HIGH" in str(status_text).upper() or pct > 50.0
-            is_mod = 10.0 <= pct <= 50.0
-
-            card_class = "high" if is_high else ("moderate" if is_mod else "low")
-            pct_class = "pct-high" if is_high else ("pct-mod" if is_mod else "pct-low")
-            fill_class = "fill-high" if is_high else ("fill-mod" if is_mod else "fill-low")
-            badge_class = "badge-high-risk" if is_high else "badge-low-risk"
-
-            with cols[idx]:
-                st.markdown(f'''<div class="risk-card {card_class}"><div class="risk-header"><div class="risk-organ-name">{meta['icon']} {meta['label']}</div></div><div class="risk-pct-value {pct_class}">{pct:.1f}%</div><div class="meter-track"><div class="meter-fill {fill_class}" style="width: {min(max(pct, 4.0), 100.0)}%;"></div></div><span class="risk-badge {badge_class}">{status_text}</span></div>''', unsafe_allow_html=True)
+    if parsed_data.get("status") == "error":
+        err_msg = parsed_data.get("error") or parsed_data.get("message") or "Document validation failed."
+        st.error(f"❌ **Document Validation Error:** {err_msg}")
+        st.info("💡 **Upload Guidance:** Please upload a valid, digital clinical laboratory report (e.g., Complete Blood Count (CBC), Kidney Function (KFT), Liver Function (LFT), Lipid Profile, Glycemic / Diabetes, or Thyroid Panel PDF) containing diagnostic biomarker results.")
     else:
-        st.info("No organ risk profile returned for this report.")
 
-    st.write("")
+        patient_meta = parsed_data.get("patient", {})
+        patient_name = patient_meta.get("name", "N/A")
+        patient_age = patient_meta.get("age", "N/A")
+        patient_gender = patient_meta.get("gender", "N/A")
+        panel_type = parsed_data.get("panel_type", "General Diagnostic Laboratory")
+        organ_risks = parsed_data.get("organ_risks", {})
+        raw_tests = parsed_data.get("tests", [])
+        narrative_str = parsed_data.get("clinical_narrative", "")
 
-    # 3. INTERACTIVE BIOMARKER MATRIX & CLEAR CLINICAL EXPLANATION
-    tab_matrix, tab_narrative = st.tabs([
-        "📋 Biomarker Analysis Matrix",
-        "📄 Clear Clinical Explanation"
-    ])
+        # 1. PATIENT META BANNER
+        st.markdown(f'''<div class="patient-card"><div><div class="patient-prop-label">Patient Name</div><div class="patient-prop-val">👤 {patient_name}</div></div><div><div class="patient-prop-label">Age / Gender</div><div class="patient-prop-val">🎂 {patient_age} Y / {patient_gender}</div></div><div><div class="patient-prop-label">Primary Diagnostic Panel</div><div class="patient-prop-val"><span class="badge-panel">🔬 {panel_type}</span></div></div><div><div class="patient-prop-label">Audit Pipeline Status</div><div class="patient-prop-val" style="color: #059669;"> Verified Deterministic</div></div></div>''', unsafe_allow_html=True)
 
-    # TAB 1: BIOMARKERS TABLE
-    with tab_matrix:
-        if raw_tests:
-            # Process & augment tests with range evaluation
-            processed_tests = []
-            abnormal_count = 0
+        # 2. TOP PRIORITY VIEW: ORGAN RISK AUDIT
+        st.markdown("### 🧬 Machine Learning Multi-Organ Risk Audit")
+        st.caption("Calibrated XGBoost predictive models evaluating subclinical organ dysfunction and systemic compromise.")
 
-            for t in raw_tests:
-                t_name = str(t.get("test", "N/A"))
-                t_val = str(t.get("value", "N/A"))
-                t_unit = str(t.get("unit", "N/A"))
-                t_ref = str(t.get("reference", "N/A"))
+        if organ_risks:
+            cols = st.columns(len(organ_risks))
+            for idx, (target_key, risk_info) in enumerate(organ_risks.items()):
+                meta = ORGAN_METADATA.get(target_key, {"label": target_key.replace("Target_", "").replace("_Risk", ""), "icon": "🩺"})
+                pct = risk_info.get("risk_percentage", 0.0) if isinstance(risk_info, dict) else float(risk_info)
+                status_text = risk_info.get("status", "LOW RISK") if isinstance(risk_info, dict) else "LOW RISK"
+                is_high = "HIGH" in str(status_text).upper() or pct > 50.0
+                is_mod = 10.0 <= pct <= 50.0
 
-                is_abnormal, flag_type = eval_is_out_of_range(t_val, t_ref)
-                if is_abnormal:
-                    abnormal_count += 1
-                    status_col = f"⚠️ OUT OF RANGE ({flag_type})"
-                else:
-                    status_col = " NORMAL"
+                card_class = "high" if is_high else ("moderate" if is_mod else "low")
+                pct_class = "pct-high" if is_high else ("pct-mod" if is_mod else "pct-low")
+                fill_class = "fill-high" if is_high else ("fill-mod" if is_mod else "fill-low")
+                badge_class = "badge-high-risk" if is_high else "badge-low-risk"
 
-                processed_tests.append({
-                    "Biomarker Parameter": t_name,
-                    "Extracted Value": t_val,
-                    "Unit": t_unit,
-                    "Reference Interval": t_ref,
-                    "Clinical Status": status_col,
-                    "is_abnormal": is_abnormal
-                })
-
-            df_all = pd.DataFrame(processed_tests)
-
-            # Filter Controls & Summary Metrics
-            c1, c2, c3, c4 = st.columns([1.5, 1.2, 1.2, 2.5])
-            with c1:
-                st.metric("Total Parameters", len(df_all))
-            with c2:
-                st.metric("Physiological Baseline", len(df_all) - abnormal_count)
-            with c3:
-                st.metric("Out-of-Range Flags", abnormal_count, delta=f"{abnormal_count} Critical" if abnormal_count > 0 else "Optimal", delta_color="inverse")
-            with c4:
-                filter_choice = st.radio(
-                    "Biomarker View Filter:",
-                    options=["All Parameters", "Out-of-Range Flags Only"],
-                    horizontal=True,
-                    label_visibility="visible"
-                )
-
-            # Apply Filter
-            if filter_choice == "Out-of-Range Flags Only":
-                df_display = df_all[df_all["is_abnormal"]].copy()
-            else:
-                df_display = df_all.copy()
-
-            # Render Table
-            display_columns = ["Biomarker Parameter", "Extracted Value", "Unit", "Reference Interval", "Clinical Status"]
-            
-            if not df_display.empty:
-                st.dataframe(
-                    df_display[display_columns],
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Biomarker Parameter": st.column_config.TextColumn("Biomarker Parameter", width="medium"),
-                        "Extracted Value": st.column_config.TextColumn("Extracted Value", width="small"),
-                        "Unit": st.column_config.TextColumn("Unit", width="small"),
-                        "Reference Interval": st.column_config.TextColumn("Reference Interval", width="medium"),
-                        "Clinical Status": st.column_config.TextColumn("Clinical Status", width="medium"),
-                    }
-                )
-            else:
-                st.success("🎉 All extracted parameters fall strictly within normal physiological reference ranges.")
+                with cols[idx]:
+                    st.markdown(f'''<div class="risk-card {card_class}"><div class="risk-header"><div class="risk-organ-name">{meta['icon']} {meta['label']}</div></div><div class="risk-pct-value {pct_class}">{pct:.1f}%</div><div class="meter-track"><div class="meter-fill {fill_class}" style="width: {min(max(pct, 4.0), 100.0)}%;"></div></div><span class="risk-badge {badge_class}">{status_text}</span></div>''', unsafe_allow_html=True)
         else:
-            st.warning("No biomarker parameters extracted from this report.")
+            st.info("No organ risk profile returned for this report.")
 
-    # TAB 2: STRUCTURED NARRATIVE VIEWER
-    with tab_narrative:
-        st.markdown("### 📑 Clear Clinical Diagnostic Explanation")
-        st.caption("Explainable AI (XAI) clinical synthesis generated deterministically with zero remote network calls.")
+        st.write("")
 
-        parsed_sections = parse_narrative_sections(narrative_str)
+        # 3. INTERACTIVE BIOMARKER MATRIX & CLEAR CLINICAL EXPLANATION
+        tab_matrix, tab_narrative = st.tabs([
+            "📋 Biomarker Analysis Matrix",
+            "📄 Clear Clinical Explanation"
+        ])
 
-        col_left, col_right = st.columns(2)
+        # TAB 1: BIOMARKERS TABLE
+        with tab_matrix:
+            if raw_tests:
+                # Process & augment tests with range evaluation
+                processed_tests = []
+                abnormal_count = 0
 
-        with col_left:
-            st.markdown(f'''<div class="narrative-card"><div class="narrative-title">📋 Executive Summary</div><div class="narrative-body">{parsed_sections.get("Executive Summary", "No summary synthesized.")}</div></div>''', unsafe_allow_html=True)
-            st.markdown(f'''<div class="narrative-card"><div class="narrative-title">🔬 Biomarker Analysis & Pathophysiology</div><div class="narrative-body">{parsed_sections.get("Biomarker Analysis", "No biomarker analysis synthesized.")}</div></div>''', unsafe_allow_html=True)
+                for t in raw_tests:
+                    t_name = str(t.get("test", "N/A"))
+                    t_val = str(t.get("value", "N/A"))
+                    t_unit = str(t.get("unit", "N/A"))
+                    t_ref = str(t.get("reference", "N/A"))
 
-        with col_right:
-            st.markdown(f'''<div class="narrative-card"><div class="narrative-title">⚠️ Health Threats & Potential Risks</div><div class="narrative-body">{parsed_sections.get("Health Threats & Risks", "No clinical threats identified.")}</div></div>''', unsafe_allow_html=True)
-            st.markdown(f'''<div class="narrative-card"><div class="narrative-title">🎯 Recommended Action Plan</div><div class="narrative-body">{parsed_sections.get("Recommended Action Plan", "Standard routine screening recommended.")}</div></div>''', unsafe_allow_html=True)
+                    is_abnormal, flag_type = eval_is_out_of_range(t_val, t_ref)
+                    if is_abnormal:
+                        abnormal_count += 1
+                        status_col = f"⚠️ OUT OF RANGE ({flag_type})"
+                    else:
+                        status_col = " NORMAL"
+
+                    processed_tests.append({
+                        "Biomarker Parameter": t_name,
+                        "Extracted Value": t_val,
+                        "Unit": t_unit,
+                        "Reference Interval": t_ref,
+                        "Clinical Status": status_col,
+                        "is_abnormal": is_abnormal
+                    })
+
+                df_all = pd.DataFrame(processed_tests)
+
+                # Filter Controls & Summary Metrics
+                c1, c2, c3, c4 = st.columns([1.5, 1.2, 1.2, 2.5])
+                with c1:
+                    st.metric("Total Parameters", len(df_all))
+                with c2:
+                    st.metric("Physiological Baseline", len(df_all) - abnormal_count)
+                with c3:
+                    st.metric("Out-of-Range Flags", abnormal_count, delta=f"{abnormal_count} Critical" if abnormal_count > 0 else "Optimal", delta_color="inverse")
+                with c4:
+                    filter_choice = st.radio(
+                        "Biomarker View Filter:",
+                        options=["All Parameters", "Out-of-Range Flags Only"],
+                        horizontal=True,
+                        label_visibility="visible"
+                    )
+
+                # Apply Filter
+                if filter_choice == "Out-of-Range Flags Only":
+                    df_display = df_all[df_all["is_abnormal"]].copy()
+                else:
+                    df_display = df_all.copy()
+
+                # Render Table
+                display_columns = ["Biomarker Parameter", "Extracted Value", "Unit", "Reference Interval", "Clinical Status"]
+            
+                if not df_display.empty:
+                    st.dataframe(
+                        df_display[display_columns],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Biomarker Parameter": st.column_config.TextColumn("Biomarker Parameter", width="medium"),
+                            "Extracted Value": st.column_config.TextColumn("Extracted Value", width="small"),
+                            "Unit": st.column_config.TextColumn("Unit", width="small"),
+                            "Reference Interval": st.column_config.TextColumn("Reference Interval", width="medium"),
+                            "Clinical Status": st.column_config.TextColumn("Clinical Status", width="medium"),
+                        }
+                    )
+                else:
+                    st.success("🎉 All extracted parameters fall strictly within normal physiological reference ranges.")
+            else:
+                st.warning("No biomarker parameters extracted from this report.")
+
+        # TAB 2: STRUCTURED NARRATIVE VIEWER
+        with tab_narrative:
+            st.markdown("### 📑 Clear Clinical Diagnostic Explanation")
+            st.caption("Explainable AI (XAI) clinical synthesis generated deterministically with zero remote network calls.")
+
+            parsed_sections = parse_narrative_sections(narrative_str)
+
+            col_left, col_right = st.columns(2)
+
+            with col_left:
+                st.markdown(f'''<div class="narrative-card"><div class="narrative-title">📋 Executive Summary</div><div class="narrative-body">{parsed_sections.get("Executive Summary", "No summary synthesized.")}</div></div>''', unsafe_allow_html=True)
+                st.markdown(f'''<div class="narrative-card"><div class="narrative-title">🔬 Biomarker Analysis & Pathophysiology</div><div class="narrative-body">{parsed_sections.get("Biomarker Analysis", "No biomarker analysis synthesized.")}</div></div>''', unsafe_allow_html=True)
+
+            with col_right:
+                st.markdown(f'''<div class="narrative-card"><div class="narrative-title">⚠️ Health Threats & Potential Risks</div><div class="narrative-body">{parsed_sections.get("Health Threats & Risks", "No clinical threats identified.")}</div></div>''', unsafe_allow_html=True)
+                st.markdown(f'''<div class="narrative-card"><div class="narrative-title">🎯 Recommended Action Plan</div><div class="narrative-body">{parsed_sections.get("Recommended Action Plan", "Standard routine screening recommended.")}</div></div>''', unsafe_allow_html=True)
 
 else:
     # -------------------------------------------------------------------------
     # EMPTY STATE PLACEHOLDER
     # -------------------------------------------------------------------------
-    st.markdown('''<div class="empty-state-box"><div style="font-size: 3.5rem; margin-bottom: 1rem;">🧪</div><h2 style="font-size: 1.5rem; font-weight: 700; color: #0F172A; margin-bottom: 0.5rem;">No Diagnostic Report Loaded</h2><p style="color: #64748B; max-width: 580px; margin: 0 auto 1.5rem auto; font-size: 0.95rem; line-height: 1.6;">Upload a patient laboratory report in PDF format above and click <strong>🚀 Simplify & Analyze Report</strong>. The pipeline will perform layout-aware spatial extraction, evaluate multi-organ pathology risk, and provide clear clinical explanations.</p><div style="display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; color: #475569; font-size: 0.85rem; font-weight: 600;"><span>🩸 Complete Blood Count (CBC)</span><span>🫘 Kidney Function (KFT)</span><span>🧪 Liver Function (LFT)</span><span>🫀 Lipid Profile</span><span>🍬 Glycemic & Diabetes</span><span>🦋 Thyroid Profile</span></div></div>''', unsafe_allow_html=True)
+    st.markdown('''<div class="empty-state-box"><div style="font-size: 3.5rem; margin-bottom: 1rem;">🧪</div><h2 style="font-size: 1.5rem; font-weight: 700; color: #0F172A; margin-bottom: 0.5rem;">No Diagnostic Report Loaded</h2><p style="color: #64748B; max-width: 580px; margin: 0 auto 1.5rem auto; font-size: 0.95rem; line-height: 1.6;">Upload a patient laboratory report in PDF or image format (.pdf, .png, .jpg, .jpeg) above and click <strong>🚀 Simplify & Analyze Report</strong>. The pipeline will perform layout-aware spatial extraction, evaluate multi-organ pathology risk, and provide clear clinical explanations.</p><div style="display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; color: #475569; font-size: 0.85rem; font-weight: 600;"><span>🩸 Complete Blood Count (CBC)</span><span>🫘 Kidney Function (KFT)</span><span>🧪 Liver Function (LFT)</span><span>🫀 Lipid Profile</span><span>🍬 Glycemic & Diabetes</span><span>🦋 Thyroid Profile</span></div></div>''', unsafe_allow_html=True)
