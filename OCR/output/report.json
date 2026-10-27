@@ -1,38 +1,176 @@
 {
-    "report_type": "LFT",
-    "patient": {},
-    "tests": [
-        {
-            "test": "soot (Ast)",
-            "value": "21",
-            "unit": "ust ust",
-            "reference": "1034 4 n",
-            "flag": "Normal",
-            "validation": "Within Expected Range"
-        },
-        {
-            "test": "SOOT /SGIPT RaT I0",
-            "value": "1.48",
-            "unit": "Rgit 10",
-            "reference": "44 122",
-            "flag": "Normal",
-            "validation": "Within Expected Range"
-        },
-        {
-            "test": "Gpruma Chulzimy( T-zrsfetase",
-            "value": "153",
-            "unit": "Uat",
-            "reference": "10 14",
-            "flag": "Normal",
-            "validation": "Within Expected Range"
-        },
-        {
-            "test": "med e iee ere t hend ter laply mrd of sre e dime",
-            "value": "",
-            "unit": "",
-            "reference": "",
-            "flag": "Normal",
-            "validation": "Within Expected Range"
-        }
-    ]
+  "patient": {
+    "name": "Dummy",
+    "age": "20",
+    "gender": "Male"
+  },
+  "tests": [
+    {
+      "test": "Haemoglobin",
+      "value": "15",
+      "unit": "g/dL",
+      "reference": "13 - 17"
+    },
+    {
+      "test": "Total Leucocyte Count",
+      "value": "5000",
+      "unit": "/cumm",
+      "reference": "4000 - 10000"
+    },
+    {
+      "test": "Neutrophils",
+      "value": "50",
+      "unit": "%",
+      "reference": "40 - 80"
+    },
+    {
+      "test": "Lymphocytes",
+      "value": "40",
+      "unit": "%",
+      "reference": "20 - 40"
+    },
+    {
+      "test": "Eosinophils",
+      "value": "1",
+      "unit": "%",
+      "reference": "1 - 6"
+    },
+    {
+      "test": "Monocytes",
+      "value": "9",
+      "unit": "%",
+      "reference": "2 - 10"
+    },
+    {
+      "test": "Basophils",
+      "value": "0.00",
+      "unit": "%",
+      "reference": "0 - 1"
+    },
+    {
+      "test": "Absolute Neutrophils",
+      "value": "2500.00",
+      "unit": "/cumm",
+      "reference": "2000 - 7000"
+    },
+    {
+      "test": "Absolute Lymphocytes",
+      "value": "2000.00",
+      "unit": "/cumm",
+      "reference": "1000 - 3000"
+    },
+    {
+      "test": "Absolute Eosinophils",
+      "value": "50.00",
+      "unit": "/cumm",
+      "reference": "20 - 500"
+    },
+    {
+      "test": "Absolute Monocytes",
+      "value": "450.00",
+      "unit": "/cumm",
+      "reference": "200 - 1000"
+    },
+    {
+      "test": "RBC Count",
+      "value": "5",
+      "unit": "N/A",
+      "reference": "4.5 - 5.5"
+    },
+    {
+      "test": "MCV",
+      "value": "80.00",
+      "unit": "fL",
+      "reference": "81 - 101"
+    },
+    {
+      "test": "MCH",
+      "value": "30.00",
+      "unit": "pg",
+      "reference": "27 - 32"
+    },
+    {
+      "test": "MCHC",
+      "value": "37.50",
+      "unit": "g/dL",
+      "reference": "31.5 - 34.5"
+    },
+    {
+      "test": "Hct",
+      "value": "40",
+      "unit": "%",
+      "reference": "40 - 50"
+    },
+    {
+      "test": "RDW-CV",
+      "value": "12",
+      "unit": "%",
+      "reference": "11.6 - 14.0"
+    },
+    {
+      "test": "RDW-SD",
+      "value": "40",
+      "unit": "fL",
+      "reference": "39 - 46"
+    },
+    {
+      "test": "Platelet Count",
+      "value": "300000",
+      "unit": "/cumm",
+      "reference": "150000 - 410000"
+    },
+    {
+      "test": "PCT",
+      "value": "35",
+      "unit": "N/A",
+      "reference": "N/A"
+    },
+    {
+      "test": "MPV",
+      "value": "8",
+      "unit": "fL",
+      "reference": "7.5 - 11.5"
+    },
+    {
+      "test": "PDW",
+      "value": "9",
+      "unit": "N/A",
+      "reference": "N/A"
+    }
+  ],
+  "status": "success",
+  "panel_type": "Complete Blood Count (CBC)",
+  "organ_risks": {
+    "Target_Anemia_Risk": {
+      "risk_probability": 0.85,
+      "risk_percentage": 85.0,
+      "status": "HIGH RISK [!]"
+    },
+    "Target_Diabetes_Risk": {
+      "risk_probability": 0.0011,
+      "risk_percentage": 0.11,
+      "status": "LOW RISK   [OK]"
+    },
+    "Target_Kidney_Risk": {
+      "risk_probability": 0.05,
+      "risk_percentage": 5.0,
+      "status": "LOW RISK   [OK]"
+    },
+    "Target_Lipid_Risk": {
+      "risk_probability": 0.05,
+      "risk_percentage": 5.0,
+      "status": "LOW RISK   [OK]"
+    },
+    "Target_Liver_Risk": {
+      "risk_probability": 0.05,
+      "risk_percentage": 5.0,
+      "status": "LOW RISK   [OK]"
+    },
+    "Target_Overall_Health_Risk": {
+      "risk_probability": 0.7,
+      "risk_percentage": 70.0,
+      "status": "HIGH RISK [!]"
+    }
+  },
+  "clinical_narrative": "EXECUTIVE SUMMARY\n-----------------\nDiagnostic assessment synthesized for Dummy (20, Male) presenting for Complete Blood Count (CBC).\nCLINICAL ATTENTION REQUIRED: Diagnostic laboratory analysis identified 2 parameter deviation(s) requiring targeted clinical correlation: MCV, MCHC. While surrounding physiological pathways demonstrate preserved function, the observed out-of-range finding(s) warrant structured medical review to establish root cause.\nPredictive machine learning risk models flag elevated probability across: Anemia (85.0%), Overall Health (70.0%).\nThe diagnostic baseline was established across 21 extracted biomarkers to provide a comprehensive physiological evaluation.\n\nBIOMARKER ANALYSIS\n------------------\nPhysiological Baseline (Normal Markers):\n- Haemoglobin (15.0): Maintained within standard physiological reference boundaries.\n- Total Leucocyte Count (5000.0): Maintained within standard physiological reference boundaries.\n- Neutrophils (50.0): Maintained within standard physiological reference boundaries.\n- Lymphocytes (40.0): Maintained within standard physiological reference boundaries.\n- Eosinophils (1.0): Maintained within standard physiological reference boundaries.\n- Monocytes (9.0): Maintained within standard physiological reference boundaries.\n- Basophils (0.0): Maintained within standard physiological reference boundaries.\n- Absolute Neutrophils (2500.0): Maintained within standard physiological reference boundaries.\nBiological markers confirm preserved metabolic and cellular pathway integrity across all 19 within-range indicators.\n\nCritical & Out-of-Range Parameter Deviations:\n- MCV = 80.0 fL (Reference: 81 - 101 fL) [Erythrocytic Axis & Tissue Oxygenation]:\n  Anemic Deficit / Reduced Oxygen Carriage: Subnormal erythrocytic parameters compromise systemic oxygen delivery. Differential includes iron deficiency, anemia of chronic disease, nutritional deficits (B12/folate), microcytic/hypochromic indices, or occult blood loss.\n- MCHC = 37.5 g/dL (Reference: 31.5 - 34.5 g/dL) [Erythrocytic Axis & Tissue Oxygenation]:\n  Erythrocytosis / Macrocytosis: Elevated red cell indices suggest secondary response to hypoxia, volume contraction (hemoconcentration), or autonomous erythropoiesis.\n\nHEALTH THREATS & POTENTIAL RISKS\n--------------------------------\nDiagnostic Differential & Clinical Considerations:\n- Erythrocytic Axis & Tissue Oxygenation: Longitudinal risk secondary to altered MCV levels.\n- Erythrocytic Axis & Tissue Oxygenation: Longitudinal risk secondary to altered MCHC levels.\nIf left unaddressed or unmonitored, persistent biomarker variance may lead to compensatory organ stress or symptomatic presentation.\n\nMachine Learning Predictive Organ Risk Profile:\n  * Anemia                   :  85.00% [HIGH RISK [!]]\n  * Diabetes                 :   0.11% [LOW RISK   [OK]]\n  * Kidney                   :   5.00% [LOW RISK   [OK]]\n  * Lipid                    :   5.00% [LOW RISK   [OK]]\n  * Liver                    :   5.00% [LOW RISK   [OK]]\n  * Overall Health           :  70.00% [HIGH RISK [!]]\n\nRECOMMENDED ACTION PLAN\n-----------------------\n1. Clinical Follow-up: Schedule a targeted consultation with the primary care physician or attending specialist to evaluate out-of-range finding(s) (MCV, MCHC) in context of clinical presentation.\n2. Focused Longitudinal Re-testing: Repeat focused laboratory testing for affected parameters in 2 to 4 weeks to verify whether deviations are transient, compensatory, or persistent.\n3. Medication & Intake Review: Perform a comprehensive medication and supplement reconciliation to rule out pharmacological influences, diuretics, or dietary factors impacting biomarker concentrations.\n4. Symptom Surveillance: Educate the patient regarding early warning symptoms related to detected parameter shifts (e.g., fatigue, fluid shifts, orthostasis) and advise prompt consultation if new symptoms emerge.\n5. Multi-System Preventive Care: Maintain routine longitudinal screening intervals appropriate for Complete Blood Count (CBC) and integrate these findings into the permanent electronic health record.\n"
 }
